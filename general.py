@@ -102,9 +102,12 @@ class GeneralProcess(threading.Thread):
 
             t = threading.current_thread()
             while getattr(t, "do_run", True):
-                item = self.queue.get()
-                self.sendMessage(item[0], item[1])
-                self.queue.task_done()
+                try:
+                    item = self.queue.get(block=True, timeout=0.1)
+                    self.sendMessage(item[0], item[1])
+                    self.queue.task_done()
+                except Queue.Empty:
+                    pass
 
             print("Stopping %s as you wish." % self.name)
 

@@ -6,6 +6,7 @@ import select
 import Queue
 import random
 import logging
+from exceptions import AttributeError
 
 BUFFER_SIZE = 1024
 TCP_IP = '127.0.0.1'
@@ -19,7 +20,9 @@ class GeneralProcess(threading.Thread):
         self.sendQueue = Queue.Queue(maxsize=0)
         self.listenThread = self._ReceiveingThread("%s-listener" % self.name, self.port, self.receiveQueue)
         self.sendThread = self._SendingThread("%s-sender" % self.name, self.port, self.sendQueue)
-        self.others = problemStructureDict
+        self.others = problemStructureDict.copy()
+        if self.others.pop(self.name) is None:
+            raise AttributeError("Did not find self in soluton")
 
 
     def run(self):
@@ -37,7 +40,8 @@ class GeneralProcess(threading.Thread):
                 print data
             # Send a random message to someone else
             if random.randint(0,5) == 5:
-                self.sendMessage("XDXDXD", 38000+random.randint(0, 2))
+                receiveingGeneral = random.choice(self.others.keys())
+                self.sendMessage("Message to %s from %s" % (receiveingGeneral, self.name), self.others[receiveingGeneral])
 
 
         #Cleanup worker threads

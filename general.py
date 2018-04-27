@@ -12,13 +12,14 @@ TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
 
 class GeneralProcess(threading.Thread):
-    def __init__(self, name, port):
+    def __init__(self, name, problemStructureDict):
         threading.Thread.__init__(self, name=name)
-        self.port = port
+        self.port = problemStructureDict[name]
         self.receiveQueue = Queue.Queue(maxsize=0)
         self.sendQueue = Queue.Queue(maxsize=0)
-        self.listenThread = self._ReceiveingThread("%s-listener" % self.name, port, self.receiveQueue)
-        self.sendThread = self._SendingThread("%s-sender" % self.name, port, self.sendQueue)
+        self.listenThread = self._ReceiveingThread("%s-listener" % self.name, self.port, self.receiveQueue)
+        self.sendThread = self._SendingThread("%s-sender" % self.name, self.port, self.sendQueue)
+        self.others = problemStructureDict
 
 
     def run(self):

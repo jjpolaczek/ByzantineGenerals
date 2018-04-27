@@ -8,9 +8,12 @@ print "Hello"
 print msg.packObject()
 
 no_generals=3
+problemStructure={}
 generals=[]
 for i in range(no_generals):
-    generals.append(GeneralProcess("Gen%d"%i, 38000+i))
+    problemStructure["General_%d" % i] = 38000 + i
+for gen_name in problemStructure:
+    generals.append(GeneralProcess(gen_name, problemStructure))
 
 for gen in generals:
     gen.start()

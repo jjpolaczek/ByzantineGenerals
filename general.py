@@ -36,7 +36,7 @@ class GeneralProcess(threading.Thread):
                 print data
             # Send a random message to someone else
             if random.randint(0,5) == 5:
-                self.sendMessage("XDXDXD", 38000+random.randint(0, 3))
+                self.sendMessage("XDXDXD", 38000+random.randint(0, 2))
 
 
         #Cleanup worker threads
@@ -120,6 +120,7 @@ class GeneralProcess(threading.Thread):
                 s.send(msg)
                 print "Send message to port %d" % port
             except socket.error as e:
-                print "Exception while sending ::%s" % e
+                print "Exception while sending (%d -> %d) ::%s" % (self.port, port,e)
+
                 return
             s.close()

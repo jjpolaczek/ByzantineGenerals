@@ -1,5 +1,5 @@
 
-from general import GeneralProcess
+from general import GeneralProcess, GeneralParameters
 from message import Message
 import time
 
@@ -11,7 +11,7 @@ no_generals=3
 problemStructure={}
 generals=[]
 for i in range(no_generals):
-    problemStructure["General_%d" % i] = 38000 + i
+    problemStructure["General_%d" % i] = GeneralParameters(recievingPort = 38000 + i, isTraitor=False)
 for gen_name in problemStructure:
     generals.append(GeneralProcess(gen_name, problemStructure))
 

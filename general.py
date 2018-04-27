@@ -12,10 +12,15 @@ BUFFER_SIZE = 1024
 TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
 
+class GeneralParameters():
+    def __init__(self, recievingPort, isTraitor):
+        self.port = recievingPort
+        self.isTraitor = isTraitor
+
 class GeneralProcess(threading.Thread):
     def __init__(self, name, problemStructureDict):
         threading.Thread.__init__(self, name=name)
-        self.port = problemStructureDict[name]
+        self.port = problemStructureDict[name].port
         self.receiveQueue = Queue.Queue(maxsize=0)
         self.sendQueue = Queue.Queue(maxsize=0)
         self.listenThread = self._ReceiveingThread("%s-listener" % self.name, self.port, self.receiveQueue)
@@ -41,7 +46,7 @@ class GeneralProcess(threading.Thread):
             # Send a random message to someone else
             if random.randint(0,5) == 5:
                 receiveingGeneral = random.choice(self.others.keys())
-                self.sendMessage("Message to %s from %s" % (receiveingGeneral, self.name), self.others[receiveingGeneral])
+                self.sendMessage("Message to %s from %s" % (receiveingGeneral, self.name), self.others[receiveingGeneral].port)
 
 
         #Cleanup worker threads

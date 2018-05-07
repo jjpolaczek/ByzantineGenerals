@@ -11,6 +11,7 @@ from exceptions import AttributeError
 BUFFER_SIZE = 1024
 TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
+ROUND_TIMEOUT_S = 5
 
 class GeneralParameters():
     def __init__(self, recievingPort, isTraitor):
@@ -20,7 +21,9 @@ class GeneralParameters():
 class GeneralProcess(threading.Thread):
     def __init__(self, name, problemStructureDict):
         threading.Thread.__init__(self, name=name)
+        self.shutdownFlag = threading.Event()
         self.port = problemStructureDict[name].port
+        self._is_traitor=problemStructureDict[name].isTraitor
         self.receiveQueue = Queue.Queue(maxsize=0)
         self.sendQueue = Queue.Queue(maxsize=0)
         self.listenThread = self._ReceiveingThread("%s-listener" % self.name, self.port, self.receiveQueue)
@@ -28,7 +31,21 @@ class GeneralProcess(threading.Thread):
         self.others = problemStructureDict.copy()
         if self.others.pop(self.name) is None:
             raise AttributeError("Did not find self in soluton")
+        #Initialize self state
+        self._state="Idle"
+        self._round=-1
+        self._decision=None
 
+    def getState(self):
+        return self.state
+
+    def performOrder(self, value):
+        logging.info("%s performing order: %s", self.name, value)
+        self._state = "OrderSent"
+        self._decision = value
+
+    def getDecision(self):
+        return self.decision
 
     def run(self):
         self.listenThread.start()
@@ -36,7 +53,7 @@ class GeneralProcess(threading.Thread):
         t=threading.current_thread()
 
         # Main solution loop
-        while getattr(t, "do_run", True):
+        while not self.shutdownFlag.is_set():
             # Here is all handling of messages you need Tomek!
             #print "MainLoop %s" % self.name
             data = self.getMessage()
@@ -51,8 +68,8 @@ class GeneralProcess(threading.Thread):
 
         #Cleanup worker threads
         #self.sendQueue.join()
-        self.sendThread.do_run = False
-        self.listenThread.do_run = False
+        self.sendThread.shutdownFlag.set()
+        self.listenThread.shutdownFlag.set()
         self.listenThread.join()
         self.sendThread.join()
 
@@ -72,6 +89,7 @@ class GeneralProcess(threading.Thread):
 
         def __init__(self, name, port, receiveQueue):
             threading.Thread.__init__(self, name=name)
+            self.shutdownFlag = threading.Event()
             self.port = port
             self.queue = receiveQueue
 
@@ -85,7 +103,7 @@ class GeneralProcess(threading.Thread):
             logging.debug("%s Listening on port %d", self.name, self.port)
             readableSockets = [readSocket]
 
-            while getattr(t, "do_run", True):
+            while not self.shutdownFlag.is_set():
                 readable, writeable, errored = select.select(readableSockets, [], [], 0.5)
                 #print ("working on nothing %s" % self.name)
                 for s in readable:
@@ -105,13 +123,14 @@ class GeneralProcess(threading.Thread):
 
         def __init__(self, name, port, sendQueue):
             threading.Thread.__init__(self, name=name)
+            self.shutdownFlag = threading.Event()
             self.port = port
             self.queue=sendQueue
 
         def run(self):
 
             t = threading.current_thread()
-            while getattr(t, "do_run", True):
+            while not self.shutdownFlag.is_set():
                 try:
                     item = self.queue.get(block=True, timeout=0.1)
                     self.sendMessage(item[0], item[1])

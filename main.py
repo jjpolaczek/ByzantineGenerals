@@ -59,6 +59,9 @@ def byzantineTest(no_generals, no_traitors):
         for gen in generals:
             gen.start()
 
+        for gen in generals:
+            while gen.getState() != "Idle":
+                time.sleep(0.1)
         #Pick a random general ro pass the decision to the network
         selection=random.choice(range(no_generals))
         print "Selected %s to be a commanding general" % generals[selection].name
@@ -68,7 +71,7 @@ def byzantineTest(no_generals, no_traitors):
         #Execute the order
         generals[selection].performOrder(decision)
         #wait for convergence
-
+        time.sleep(3)
         for gen in generals:
             gen.shutdownFlag.set()
 
@@ -83,11 +86,11 @@ def byzantineTest(no_generals, no_traitors):
             gen.join()
 def main():
     # Register the signal handlers
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     signal.signal(signal.SIGTERM, service_shutdown)
     signal.signal(signal.SIGINT, service_shutdown)
-    testComms(5)
-    #byzantineTest(5, 0)
+    #testComms(5)
+    byzantineTest(5, 0)
 
 
 #proc = GeneralProcess("Hello")

@@ -6,6 +6,7 @@ import select
 import Queue
 import random
 import logging
+from message import Message
 from exceptions import AttributeError
 logger = logging.getLogger(__name__)
 BUFFER_SIZE = 1024
@@ -34,17 +35,21 @@ class GeneralProcess(threading.Thread):
         if self.others.pop(self.name) is None:
             raise AttributeError("Did not find self in soluton")
         #Initialize self state
-        self._state="Idle"
+        self._state=None
         self._round=-1
         self._decision=None
 
     def getState(self):
-        return self.state
+        return self._state
 
     def performOrder(self, value):
         logger.info("%s performing order: %s", self.name, value)
         self._state = "OrderSent"
         self._decision = value
+        #todo implement traitor
+        order = Message(self.name,self._decision, [self.name])
+        for lieutenant in self.others:
+            self.sendDecision(order, self.others[lieutenant])
 
     def getDecision(self):
         return self.decision
@@ -53,13 +58,12 @@ class GeneralProcess(threading.Thread):
         self.listenThread.start()
         self.sendThread.start()
         t=threading.current_thread()
-
+        self._state="Idle"
         # Main solution loop
         while not self.shutdownFlag.is_set():
             # Here is all handling of messages you need Tomek!
             #print "MainLoop %s" % self.name
             data = self.getMessage()
-
             if self._testComms:
                 if data is not None:
                     logger.info("%s received : %s", self.name, data)
@@ -67,6 +71,12 @@ class GeneralProcess(threading.Thread):
                 if random.randint(0,5) == 5:
                     receiveingGeneral = random.choice(self.others.keys())
                     self.sendMessage("Message to %s from %s" % (receiveingGeneral, self.name), self.others[receiveingGeneral].port)
+            else:
+                #Main program activity
+                message = None
+                if data is not None:
+                    message = Message.parseString(data)
+                    print message.path
 
 
         #Cleanup worker threads
@@ -75,6 +85,9 @@ class GeneralProcess(threading.Thread):
         self.listenThread.shutdownFlag.set()
         self.listenThread.join()
         self.sendThread.join()
+
+    def sendDecision(self, msg, target):
+        self.sendMessage(msg.packObject(), target.port)
 
     def sendMessage(self, msg, targetId):
         # Put the targetId / message tuple to the queue
@@ -109,7 +122,7 @@ class GeneralProcess(threading.Thread):
             message_queues = {}
             while not self.shutdownFlag.is_set():
                 readable, writable, exceptional = select.select(
-                    inputs, outputs, inputs)
+                    inputs, outputs, inputs,0.5)
                 for s in readable:
                     if s is readSocket:
                         connection, client_address = s.accept()
@@ -152,7 +165,7 @@ class GeneralProcess(threading.Thread):
                     s.close()
                     del message_queues[s]
 
-            logging.info("Stopping %s as you wish." % self.name)
+            logger.info("Stopping %s as you wish." % self.name)
             readSocket.close()
 
     class _SendingThread(threading.Thread):
@@ -174,7 +187,7 @@ class GeneralProcess(threading.Thread):
                 except Queue.Empty:
                     pass
 
-            print("Stopping %s as you wish." % self.name)
+            logger.info("Stopping %s as you wish." % self.name)
 
 
         def sendMessage(self, port, msg):
@@ -186,6 +199,5 @@ class GeneralProcess(threading.Thread):
                 logger.debug( "Send message to port %d" % port)
             except socket.error as e:
                 logger.debug("Exception while sending (%d -> %d) ::%s" % (self.port, port,e))
-
                 return
             s.close()

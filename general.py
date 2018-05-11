@@ -7,16 +7,17 @@ import Queue
 import random
 import logging
 from exceptions import AttributeError
-
+logger = logging.getLogger(__name__)
 BUFFER_SIZE = 1024
 TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
 ROUND_TIMEOUT_S = 5
 
 class GeneralParameters():
-    def __init__(self, recievingPort, isTraitor):
+    def __init__(self, recievingPort, isTraitor, testComms=False):
         self.port = recievingPort
         self.isTraitor = isTraitor
+        self.testComms = testComms
 
 class GeneralProcess(threading.Thread):
     def __init__(self, name, problemStructureDict):
@@ -24,6 +25,7 @@ class GeneralProcess(threading.Thread):
         self.shutdownFlag = threading.Event()
         self.port = problemStructureDict[name].port
         self._is_traitor=problemStructureDict[name].isTraitor
+        self._testComms=problemStructureDict[name].testComms
         self.receiveQueue = Queue.Queue(maxsize=0)
         self.sendQueue = Queue.Queue(maxsize=0)
         self.listenThread = self._ReceiveingThread("%s-listener" % self.name, self.port, self.receiveQueue)
@@ -40,7 +42,7 @@ class GeneralProcess(threading.Thread):
         return self.state
 
     def performOrder(self, value):
-        logging.info("%s performing order: %s", self.name, value)
+        logger.info("%s performing order: %s", self.name, value)
         self._state = "OrderSent"
         self._decision = value
 
@@ -58,12 +60,13 @@ class GeneralProcess(threading.Thread):
             #print "MainLoop %s" % self.name
             data = self.getMessage()
 
-            if data is not None:
-                print data
-            # Send a random message to someone else
-            if random.randint(0,5) == 5:
-                receiveingGeneral = random.choice(self.others.keys())
-                self.sendMessage("Message to %s from %s" % (receiveingGeneral, self.name), self.others[receiveingGeneral].port)
+            if self._testComms:
+                if data is not None:
+                    logger.info("%s received : %s", self.name, data)
+                # Send a random message to someone else
+                if random.randint(0,5) == 5:
+                    receiveingGeneral = random.choice(self.others.keys())
+                    self.sendMessage("Message to %s from %s" % (receiveingGeneral, self.name), self.others[receiveingGeneral].port)
 
 
         #Cleanup worker threads
@@ -95,28 +98,61 @@ class GeneralProcess(threading.Thread):
 
         def run(self):
             t = threading.current_thread()
-
+            #Based on https://steelkiwi.com/blog/working-tcp-sockets/
             readSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             readSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             readSocket.bind((TCP_IP, self.port))
             readSocket.listen(5)
-            logging.debug("%s Listening on port %d", self.name, self.port)
-            readableSockets = [readSocket]
-
+            logger.debug("%s Listening on port %d", self.name, self.port)
+            inputs = [readSocket]
+            outputs=[]
+            message_queues = {}
             while not self.shutdownFlag.is_set():
-                readable, writeable, errored = select.select(readableSockets, [], [], 0.5)
-                #print ("working on nothing %s" % self.name)
+                readable, writable, exceptional = select.select(
+                    inputs, outputs, inputs)
                 for s in readable:
                     if s is readSocket:
-                        client_socket, address = readSocket.accept()
-                        readableSockets.append(client_socket)
-                        print "Connection from", address
+                        connection, client_address = s.accept()
+                        logger.debug("Connection from {0} {1}".format(client_address,connection))
+                        connection.setblocking(0)
+                        inputs.append(connection)
+                        message_queues[connection] = Queue.Queue()
                     else:
                         data = s.recv(BUFFER_SIZE)
-                        if len(data) > 0:
+                        if data:
+                            #Store message data for reply
+                            message_queues[s].put(data)
+                            if s not in outputs:
+                                outputs.append(s)
+                            #process received data
                             self.queue.put(data)
+                        else:
+                            if s in outputs:
+                                outputs.remove(s)
+                            inputs.remove(s)
+                            s.close()
+                            del message_queues[s]
 
-            print("Stopping %s as you wish." % self.name)
+                for s in writable:
+                    # handle ack response TODO
+                    try:
+                        next_msg = message_queues[s].get_nowait()
+                    except Queue.Empty:
+                        outputs.remove(s)
+                    except KeyError:
+                        # Connection not found - sender closed the stream
+                        pass
+                    else:
+                        pass # Reply here
+
+                for s in exceptional:
+                    inputs.remove(s)
+                    if s in outputs:
+                        outputs.remove(s)
+                    s.close()
+                    del message_queues[s]
+
+            logging.info("Stopping %s as you wish." % self.name)
             readSocket.close()
 
     class _SendingThread(threading.Thread):
@@ -147,9 +183,9 @@ class GeneralProcess(threading.Thread):
             try:
                 s.connect((TCP_IP, port))
                 s.send(msg)
-                print "Send message to port %d" % port
+                logger.debug( "Send message to port %d" % port)
             except socket.error as e:
-                print "Exception while sending (%d -> %d) ::%s" % (self.port, port,e)
+                logger.debug("Exception while sending (%d -> %d) ::%s" % (self.port, port,e))
 
                 return
             s.close()

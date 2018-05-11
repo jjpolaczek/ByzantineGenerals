@@ -26,7 +26,7 @@ def testComms(no_generals):
     generals=[]
     try:
         for i in range(no_generals):
-            problemStructure["General_%d" % i] = GeneralParameters(recievingPort = 38000 + i, isTraitor=False)
+            problemStructure["General_%d" % i] = GeneralParameters(recievingPort = 38000 + i, isTraitor=False, testComms=True)
         for gen_name in problemStructure:
             generals.append(GeneralProcess(gen_name, problemStructure))
         for gen in generals:
@@ -86,8 +86,8 @@ def main():
     logging.basicConfig(level=logging.INFO)
     signal.signal(signal.SIGTERM, service_shutdown)
     signal.signal(signal.SIGINT, service_shutdown)
-    #testComms(5)
-    byzantineTest(5, 0)
+    testComms(5)
+    #byzantineTest(5, 0)
 
 
 #proc = GeneralProcess("Hello")

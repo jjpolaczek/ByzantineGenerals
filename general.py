@@ -6,6 +6,7 @@ import select
 import Queue
 import random
 import logging
+from anytree import AnyNode
 from message import Message
 from exceptions import AttributeError
 logger = logging.getLogger(__name__)
@@ -37,7 +38,10 @@ class GeneralProcess(threading.Thread):
         #Initialize self state
         self._state=None
         self._round=-1
+        self._roundTime=None
+        self._maxRound = len(self.others) - 2
         self._decision=None
+        self._decisionTree=None
 
     def getState(self):
         return self._state
@@ -54,6 +58,51 @@ class GeneralProcess(threading.Thread):
     def getDecision(self):
         return self.decision
 
+    def updateTree(self, message):
+        value = message.value
+        path = message.path
+        if isinstance(path, str):
+            raise ValueError
+        #Initialize the tree if needed
+        if self._decisionTree is None:
+            self._decisionTree = AnyNode(id=path[0], dval=value,oval=None, dbg_real=len(path) == 1)
+        #Take node from root:
+        tmpNode=self._decisionTree
+        #Sanity check if the id is correct for origin general
+        if tmpNode.id != path[0]:
+            logger.error("Invalid ID of root node %s != %s", tmpNode.id, path[0])
+            return
+        #Check if all path nodes exist, if not add fake values
+        for i in range(len(path) - 1):
+            children = tmpNode.children
+            exists=False
+            for c in children:
+                if c.id == path[i]:
+                    #This path piece exists, continue
+                    tmpNode = c
+                    exists=True
+                    continue
+            if not exists:
+                #If got here, need to add tree child as it does not exist
+                tmpNode = AnyNode(id=path[i],parent=tmpNode, dval=value, oval=None, dbg_real=False)
+                logger.debug("Adding fake node at path %s (id=%s)", path[:i+1], path[i])
+
+        #Finally add the leaf to the tree
+        newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
+
+    def getChildMessages(self, message):
+        newPath = message.path
+        newPath.append(self.name)
+        messages = []
+        for key in self.others:
+            if key == self._decisionTree.id:
+                #Skip sending to general
+                continue
+            if key not in newPath:
+                #Skip sending to paths forming cycles
+                messages.append(Message(self.name, message.value, newPath))
+        return messages
+
     def run(self):
         self.listenThread.start()
         self.sendThread.start()
@@ -61,7 +110,7 @@ class GeneralProcess(threading.Thread):
         self._state="Idle"
         # Main solution loop
         while not self.shutdownFlag.is_set():
-            # Here is all handling of messages you need Tomek!
+
             #print "MainLoop %s" % self.name
             data = self.getMessage()
             if self._testComms:
@@ -71,12 +120,45 @@ class GeneralProcess(threading.Thread):
                 if random.randint(0,5) == 5:
                     receiveingGeneral = random.choice(self.others.keys())
                     self.sendMessage("Message to %s from %s" % (receiveingGeneral, self.name), self.others[receiveingGeneral].port)
+                elif random.randint(0,5) == 5:
+                    self.sendMessage("Message to self %s from %s" % (self.name, self.name),
+                                     self.port)
             else:
                 #Main program activity
                 message = None
                 if data is not None:
                     message = Message.parseString(data)
                     print message.path
+
+                    #State machine
+                    if self._state == "Idle":
+                        logger.info("Entering phase 1 of converging (%s)", self.name)
+                        self._state= "Converging"
+                        if len(message.path) != 1:
+                            logger.warn("%s skipped multiple rounds of solution (to %d)", self.name, len(message.path))
+                        self._round = len(message.path)
+                        self.updateTree(message)
+                        # update state tree and forward child messages to other processes
+                        # Also send the message to self (update tree for self value)
+                        tmpPath = message.path[:]
+                        tmpPath.append(self.name)
+                        selfMessage = Message(self.name, message.value, tmpPath)
+                        self.updateTree(selfMessage)
+
+                        childMessages = self.getChildMessages(message)
+                        for msg in childMessages:
+                            self.sendDecision(msg, self.others[msg.path[-1]])
+
+                        #start timeout timer for next rounds
+                        self._roundTime = time.time()
+
+                    elif self._state == "Converging":
+                        pass
+                else:
+                    if self._state == "Converging":
+                        if time.time() - self._roundTime > ROUND_TIMEOUT_S:
+                            logger.info("Timeout reached for %s in round %d", self.name, self._round)
+                            #Do we send remaining messages??
 
 
         #Cleanup worker threads

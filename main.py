@@ -86,11 +86,11 @@ def byzantineTest(no_generals, no_traitors):
             gen.join()
 def main():
     # Register the signal handlers
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     signal.signal(signal.SIGTERM, service_shutdown)
     signal.signal(signal.SIGINT, service_shutdown)
     #testComms(5)
-    byzantineTest(5, 0)
+    byzantineTest(4, 0)
 
 
 #proc = GeneralProcess("Hello")

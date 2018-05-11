@@ -6,6 +6,8 @@ class Message(object):
         self.sender = sender
         self.value = value
         self.path = path
+        #future fields
+        self.orderID=None
 
     def packObject(self):
         return pickle.dumps(self, pickle.HIGHEST_PROTOCOL)

@@ -53,9 +53,7 @@ class GeneralProcess(threading.Thread):
         round = 1
         for i in range(1, generals, 1):
             tmp = 1
-            # print i
             for j in range(1, i+1, 1):
-                # print "*(%d-%d)" % (generals, j)
                 tmp *= (generals - j)
             count += tmp
         return count
@@ -82,8 +80,8 @@ class GeneralProcess(threading.Thread):
             raise ValueError
         #Initialize the tree if needed
         if self._decisionTree is None:
+            #logger.debug("(%s) adding root %s", self.name, path)
             self._decisionTree = AnyNode(id=path[0], dval=value,oval=None, dbg_real=len(path) == 1)
-            self._debugCounter2 += 1
             return
         #Take node from root:
         tmpNode=self._decisionTree
@@ -92,7 +90,8 @@ class GeneralProcess(threading.Thread):
             logger.error("Invalid ID of root node %s != %s", tmpNode.id, path[0])
             return
         #Check if all path nodes exist, if not add fake values
-        for i in range(len(path) - 1):
+
+        for i in range(1,len(path) - 1, 1):
             children = tmpNode.children
             exists=False
             for c in children:
@@ -104,8 +103,8 @@ class GeneralProcess(threading.Thread):
             if not exists:
                 #If got here, need to add tree child as it does not exist
                 tmpNode = AnyNode(id=path[i],parent=tmpNode, dval=value, oval=None, dbg_real=False)
-                self._debugCounter2 += 1
-                logger.debug("(%s)Adding fake node at path %s (id=%s)", self.name, path[:i+1], path[i])
+                #self._debugCounter2 += 1
+                #logger.debug("(%s)Adding fake node at path %s (id=%s) %s", self.name, path[:i+1], path[i], path)
 
         #Finally add the leaf to the tree (after checking if the children exist)
         exists=False
@@ -119,8 +118,9 @@ class GeneralProcess(threading.Thread):
         if exists:
             tmpNode.dval = value
             tmpNode.dbg_real=True
-            logger.debug("(%s)Updating node %s", self.name, path)
+            #logger.debug("(%s)Updating node %s", self.name, path)
         else:
+            #logger.debug("(%s)Adding node at path %s", self.name, path)
             newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
             self._debugCounter2 += 1
 
@@ -209,8 +209,7 @@ class GeneralProcess(threading.Thread):
                     message = Message.parseString(data)
                     #print message.path
                     self._debugCounter += 1
-                    if self.name == "General_2":
-                        logger.info("Got message with path %s (%s)", message.path, self.name)
+                    #logger.info("Got message with path %s (%s)", message.path, self.name)
                     #State machine
                     if self._state == "Idle":
                         logger.info("Entering phase 1 of converging (%s)", self.name)
@@ -221,7 +220,7 @@ class GeneralProcess(threading.Thread):
 
                         # First send the message to self (update tree for self value)
                         if self.name not in message.path:
-                            logger.debug("%s Adding to self %s", self.name, message.path)
+                            #logger.debug("%s Adding to self %s", self.name, message.path)
                             tmpPath = message.path[:]
                             tmpPath.append(self.name)
                             selfMessage = Message(self.name, message.value, tmpPath)
@@ -239,7 +238,7 @@ class GeneralProcess(threading.Thread):
 
                         #logger.info("Got message with path %s (%s)", message.path, self.name)
                         if self.name not in message.path:
-                            logger.debug("%s Adding to self %s", self.name, message.path)
+                            #logger.debug("%s Adding to self %s", self.name, message.path)
                             tmpPath = message.path[:]
                             tmpPath.append(self.name)
                             selfMessage = Message(self.name, message.value, tmpPath)

@@ -66,6 +66,7 @@ class GeneralProcess(threading.Thread):
         #Initialize the tree if needed
         if self._decisionTree is None:
             self._decisionTree = AnyNode(id=path[0], dval=value,oval=None, dbg_real=len(path) == 1)
+            return
         #Take node from root:
         tmpNode=self._decisionTree
         #Sanity check if the id is correct for origin general
@@ -101,6 +102,49 @@ class GeneralProcess(threading.Thread):
             tmpNode.dbg_real=True
         else:
             newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
+
+
+    def findLevel(self, n):
+        l = []
+
+        if(self._decisionTree.height < n):
+            return None
+        l.append(self._decisionTree)
+        for i in range(n):
+            pom = []
+            for c in l:
+                pom.extend(c.children)
+            l = pom
+        return l
+
+    def exploreTree(self):
+        n = self._decisionTree.height
+
+        for i in reversed(range(n)):
+            print i
+            l = self.findLevel(i)
+            for e in l:
+                fs = 0
+                if len(e.children) == 0:
+                    e.oval = e.dval
+                for c in e.children:
+                    if c.oval is None:
+                        c.oval = c.dval
+                    if c.oval is False:
+                        fs += 1
+                    else:
+                        fs -= 1
+                if fs > 0:
+                    e.oval = False
+                elif fs < 0:
+                    e.oval = True
+                else:
+                    e.oval = e.dval
+
+        self._decision = self._decisionTree.oval
+
+        return self._decision
+
 
     def getChildMessages(self, message):
         newPath = message.path

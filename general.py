@@ -56,7 +56,7 @@ class GeneralProcess(threading.Thread):
             self.sendDecision(order, self.others[lieutenant])
 
     def getDecision(self):
-        return self.decision
+        return self._decision
 
     def updateTree(self, message):
         value = message.value

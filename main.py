@@ -52,7 +52,7 @@ def byzantineTest(no_generals, no_traitors):
         traitors=random.sample(range(no_generals), no_traitors)
         print "Traitors are", traitors
         for i in range(no_generals):
-            problemStructure["General_%d" % i] = GeneralParameters(recievingPort = 38000 + i, isTraitor=(i in traitors))
+            problemStructure["General_%d" % i] = GeneralParameters(recievingPort = 38032 + i, isTraitor=(i in traitors))
         for gen_name in problemStructure:
             generals.append(GeneralProcess(gen_name, problemStructure))
 
@@ -63,7 +63,8 @@ def byzantineTest(no_generals, no_traitors):
             while gen.getState() != "Idle":
                 time.sleep(0.1)
         #Pick a random general ro pass the decision to the network
-        selection=random.choice(range(no_generals))
+        #selection=random.choice(range(no_generals))
+        selection=0
         print "Selected %s to be a commanding general" % generals[selection].name
         #Pick random decision to be made
         decision = random.choice([False, True])
@@ -71,7 +72,7 @@ def byzantineTest(no_generals, no_traitors):
         #Execute the order
         generals[selection].performOrder(decision)
         #wait for convergence
-        time.sleep(3)
+        time.sleep(6)
         for gen in generals:
             gen.shutdownFlag.set()
 
@@ -90,7 +91,7 @@ def main():
     signal.signal(signal.SIGTERM, service_shutdown)
     signal.signal(signal.SIGINT, service_shutdown)
     #testComms(5)
-    byzantineTest(4, 0)
+    byzantineTest(5, 0)
 
 
 #proc = GeneralProcess("Hello")

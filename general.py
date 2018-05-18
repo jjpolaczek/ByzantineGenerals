@@ -37,11 +37,28 @@ class GeneralProcess(threading.Thread):
             raise AttributeError("Did not find self in soluton")
         #Initialize self state
         self._state=None
-        self._round=-1
-        self._roundTime=None
-        self._maxRound = len(self.others) - 2
+        self._maxMessages = self._getMaxMessages(len(self.others) + 1)
+        self._timeoutTime = 0
         self._decision=None
         self._decisionTree=None
+
+        self._debugCounter=0
+        self._debugCounter2=0
+
+    def _getMaxMessages(self, generals):
+        # First message (order)
+        # count = generals - 1
+        count = 0
+        # Subsequent messages
+        round = 1
+        for i in range(1, generals, 1):
+            tmp = 1
+            print i
+            for j in range(1, i+1, 1):
+                print "*(%d-%d)" % (generals, j)
+                tmp *= (generals - j)
+            count += tmp
+        return count
 
     def getState(self):
         return self._state
@@ -66,6 +83,7 @@ class GeneralProcess(threading.Thread):
         #Initialize the tree if needed
         if self._decisionTree is None:
             self._decisionTree = AnyNode(id=path[0], dval=value,oval=None, dbg_real=len(path) == 1)
+            self._debugCounter2 += 1
         #Take node from root:
         tmpNode=self._decisionTree
         #Sanity check if the id is correct for origin general
@@ -85,7 +103,8 @@ class GeneralProcess(threading.Thread):
             if not exists:
                 #If got here, need to add tree child as it does not exist
                 tmpNode = AnyNode(id=path[i],parent=tmpNode, dval=value, oval=None, dbg_real=False)
-                logger.debug("Adding fake node at path %s (id=%s)", path[:i+1], path[i])
+                self._debugCounter2 += 1
+                logger.debug("(%s)Adding fake node at path %s (id=%s)", self.name, path[:i+1], path[i])
 
         #Finally add the leaf to the tree (after checking if the children exist)
         exists=False
@@ -99,8 +118,10 @@ class GeneralProcess(threading.Thread):
         if exists:
             tmpNode.dval = value
             tmpNode.dbg_real=True
+            logger.debug("(%s)Updating node %s", self.name, path)
         else:
             newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
+            self._debugCounter2 += 1
 
     def getChildMessages(self, message):
         newPath = message.path
@@ -112,7 +133,9 @@ class GeneralProcess(threading.Thread):
                 continue
             if key not in newPath:
                 #Skip sending to paths forming cycles
-                messages.append(Message(self.name, message.value, newPath))
+                #print newPath
+                messages.append((key, Message(self.name, message.value, newPath)))
+                #logger.debug("(%s) Generating message of path %s", self.name, tmpPath)
         return messages
 
     def run(self):
@@ -140,36 +163,53 @@ class GeneralProcess(threading.Thread):
                 message = None
                 if data is not None:
                     message = Message.parseString(data)
-                    print message.path
-
+                    #print message.path
+                    self._debugCounter += 1
+                    if self.name == "General_2":
+                        logger.info("Got message with path %s (%s)", message.path, self.name)
                     #State machine
                     if self._state == "Idle":
                         logger.info("Entering phase 1 of converging (%s)", self.name)
                         self._state= "Converging"
                         if len(message.path) != 1:
                             logger.warn("%s skipped multiple rounds of solution (to %d)", self.name, len(message.path))
-                        self._round = len(message.path)
                         self.updateTree(message)
-                        # update state tree and forward child messages to other processes
-                        # Also send the message to self (update tree for self value)
-                        tmpPath = message.path[:]
-                        tmpPath.append(self.name)
-                        selfMessage = Message(self.name, message.value, tmpPath)
-                        self.updateTree(selfMessage)
 
+                        # First send the message to self (update tree for self value)
+                        if self.name not in message.path:
+                            logger.debug("%s Adding to self %s", self.name, message.path)
+                            tmpPath = message.path[:]
+                            tmpPath.append(self.name)
+                            selfMessage = Message(self.name, message.value, tmpPath)
+                            self.updateTree(selfMessage)
+                        # update state tree and forward child messages to other processes
                         childMessages = self.getChildMessages(message)
                         for msg in childMessages:
-                            self.sendDecision(msg, self.others[msg.path[-1]])
+                            self.sendDecision(msg[1], self.others[msg[0]])
 
                         #start timeout timer for next rounds
-                        self._roundTime = time.time()
+                        self._timeoutTime = time.time() + ROUND_TIMEOUT_S
 
                     elif self._state == "Converging":
-                        pass
+                        # First send the message to self (update tree for self value)
+
+                        #logger.info("Got message with path %s (%s)", message.path, self.name)
+                        if self.name not in message.path:
+                            logger.debug("%s Adding to self %s", self.name, message.path)
+                            tmpPath = message.path[:]
+                            tmpPath.append(self.name)
+                            selfMessage = Message(self.name, message.value, tmpPath)
+                            self.updateTree(selfMessage)
+                        # update state tree and forward child messages to other processes
+                        childMessages = self.getChildMessages(message)
+                        for msg in childMessages:
+                            self.sendDecision(msg[1], self.others[msg[0]])
+
                 else:
                     if self._state == "Converging":
-                        if time.time() - self._roundTime > ROUND_TIMEOUT_S:
-                            logger.info("Timeout reached for %s in round %d", self.name, self._round)
+                        if time.time() >self._timeoutTime:
+                            logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._debugCounter2, self._debugCounter)
+                            self._state = "Idle"
                             #Do we send remaining messages??
 
 
@@ -220,13 +260,14 @@ class GeneralProcess(threading.Thread):
                 for s in readable:
                     if s is readSocket:
                         connection, client_address = s.accept()
-                        logger.debug("Connection from {0} {1}".format(client_address,connection))
+                        #logger.debug("{2}: Connection from {0} {1}".format(client_address,connection, self.name))
                         connection.setblocking(0)
                         inputs.append(connection)
                         message_queues[connection] = Queue.Queue()
                     else:
                         data = s.recv(BUFFER_SIZE)
                         if data:
+                            #logger.debug("{2}: Data from {0} {1}".format(client_address, connection, self.name))
                             #Store message data for reply
                             message_queues[s].put(data)
                             if s not in outputs:
@@ -290,7 +331,7 @@ class GeneralProcess(threading.Thread):
             try:
                 s.connect((TCP_IP, port))
                 s.send(msg)
-                logger.debug( "Send message to port %d" % port)
+                #logger.debug( "Send message to port %d" % port)
             except socket.error as e:
                 logger.debug("Exception while sending (%d -> %d) ::%s" % (self.port, port,e))
                 return

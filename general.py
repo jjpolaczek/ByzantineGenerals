@@ -87,8 +87,20 @@ class GeneralProcess(threading.Thread):
                 tmpNode = AnyNode(id=path[i],parent=tmpNode, dval=value, oval=None, dbg_real=False)
                 logger.debug("Adding fake node at path %s (id=%s)", path[:i+1], path[i])
 
-        #Finally add the leaf to the tree
-        newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
+        #Finally add the leaf to the tree (after checking if the children exist)
+        exists=False
+        children = tmpNode.children
+        for c in children:
+            if c.id == path[-1]:
+                # This path piece exists! just update the value
+                tmpNode = c
+                exists = True
+                continue
+        if exists:
+            tmpNode.dval = value
+            tmpNode.dbg_real=True
+        else:
+            newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
 
     def getChildMessages(self, message):
         newPath = message.path
@@ -256,7 +268,7 @@ class GeneralProcess(threading.Thread):
             threading.Thread.__init__(self, name=name)
             self.shutdownFlag = threading.Event()
             self.port = port
-            self.queue=sendQueue
+            self.queue = sendQueue
 
         def run(self):
 

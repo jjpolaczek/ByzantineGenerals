@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 BUFFER_SIZE = 1024
 TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
-ROUND_TIMEOUT_S = 5
 
 class GeneralParameters():
     def __init__(self, recievingPort, isTraitor, testComms=False):
@@ -38,12 +37,14 @@ class GeneralProcess(threading.Thread):
         #Initialize self state
         self._state=None
         self._maxMessages = self._getMaxMessages(len(self.others) + 1)
+        self._timeoutS = float(self._maxMessages) * 0.05
+        logger.info("Timeout set to %f seconds", self._timeoutS)
         self._timeoutTime = 0
         self._decision=None
         self._decisionTree=None
 
         self._debugCounter=0
-        self._debugCounter2=0
+        self._uniqueUpdates=0
 
     def _getMaxMessages(self, generals):
         # First message (order)
@@ -53,7 +54,7 @@ class GeneralProcess(threading.Thread):
         round = 1
         for i in range(1, generals, 1):
             tmp = 1
-            for j in range(1, i+1, 1):
+            for j in range(2, i+1, 1):
                 tmp *= (generals - j)
             count += tmp
         return count
@@ -122,7 +123,7 @@ class GeneralProcess(threading.Thread):
         else:
             #logger.debug("(%s)Adding node at path %s", self.name, path)
             newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
-            self._debugCounter2 += 1
+            self._uniqueUpdates += 1
 
 
     def findLevel(self, n):
@@ -142,7 +143,6 @@ class GeneralProcess(threading.Thread):
         n = self._decisionTree.height
 
         for i in reversed(range(n)):
-            print i
             l = self.findLevel(i)
             for e in l:
                 fs = 0
@@ -231,7 +231,7 @@ class GeneralProcess(threading.Thread):
                             self.sendDecision(msg[1], self.others[msg[0]])
 
                         #start timeout timer for next rounds
-                        self._timeoutTime = time.time() + ROUND_TIMEOUT_S
+                        self._timeoutTime = time.time() + self._timeoutS
 
                     elif self._state == "Converging":
                         # First send the message to self (update tree for self value)
@@ -251,10 +251,15 @@ class GeneralProcess(threading.Thread):
                 else:
                     if self._state == "Converging":
                         if time.time() >self._timeoutTime:
-                            logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._debugCounter2, self._debugCounter)
+                            logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
                             self._state = "Converged"
                             self._decision = self.exploreTree()
                             #Do we send remaining messages??
+                        if self._uniqueUpdates == self._maxMessages:
+                            logger.info("Convergence for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
+                            self._decision = self.exploreTree()
+                            self._state = "Converged"
+
 
 
         #Cleanup worker threads
@@ -344,7 +349,7 @@ class GeneralProcess(threading.Thread):
                     s.close()
                     del message_queues[s]
 
-            logger.info("Stopping %s as you wish." % self.name)
+            logger.debug("Stopping %s as you wish." % self.name)
             readSocket.close()
 
     class _SendingThread(threading.Thread):
@@ -366,7 +371,7 @@ class GeneralProcess(threading.Thread):
                 except Queue.Empty:
                     pass
 
-            logger.info("Stopping %s as you wish." % self.name)
+            logger.debug("Stopping %s as you wish." % self.name)
 
 
         def sendMessage(self, port, msg):

@@ -52,7 +52,7 @@ def byzantineTest(no_generals, no_traitors):
         traitors=random.sample(range(no_generals), no_traitors)
         print "Traitors are", traitors
         for i in range(no_generals):
-            problemStructure["General_%d" % i] = GeneralParameters(recievingPort = 38032 + i, isTraitor=(i in traitors))
+            problemStructure["General_%d" % i] = GeneralParameters(recievingPort = 38132 + i, isTraitor=(i in traitors))
         for gen_name in problemStructure:
             generals.append(GeneralProcess(gen_name, problemStructure))
 
@@ -73,6 +73,11 @@ def byzantineTest(no_generals, no_traitors):
         generals[selection].performOrder(decision)
         #wait for convergence
         time.sleep(6)
+
+
+        for gen in generals:
+            print gen.getState()
+            print gen._decision
         for gen in generals:
             gen.shutdownFlag.set()
 
@@ -85,9 +90,10 @@ def byzantineTest(no_generals, no_traitors):
 
         for gen in generals:
             gen.join()
+
 def main():
     # Register the signal handlers
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     signal.signal(signal.SIGTERM, service_shutdown)
     signal.signal(signal.SIGINT, service_shutdown)
     #testComms(5)

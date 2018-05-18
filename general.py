@@ -53,9 +53,9 @@ class GeneralProcess(threading.Thread):
         round = 1
         for i in range(1, generals, 1):
             tmp = 1
-            print i
+            # print i
             for j in range(1, i+1, 1):
-                print "*(%d-%d)" % (generals, j)
+                # print "*(%d-%d)" % (generals, j)
                 tmp *= (generals - j)
             count += tmp
         return count
@@ -253,7 +253,8 @@ class GeneralProcess(threading.Thread):
                     if self._state == "Converging":
                         if time.time() >self._timeoutTime:
                             logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._debugCounter2, self._debugCounter)
-                            self._state = "Idle"
+                            self._state = "Converged"
+                            self._decision = self.exploreTree()
                             #Do we send remaining messages??
 
 

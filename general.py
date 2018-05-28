@@ -9,6 +9,7 @@ import logging
 from anytree import AnyNode
 from message import Message
 from exceptions import AttributeError
+import copy
 logger = logging.getLogger(__name__)
 BUFFER_SIZE = 1024
 TCP_IP = '127.0.0.1'
@@ -41,6 +42,7 @@ class GeneralProcess(threading.Thread):
         logger.info("Timeout set to %f seconds", self._timeoutS)
         self._timeoutTime = 0
         self._decision=None
+        self._givenOrder=None
         self._decisionTree=None
 
         self._debugCounter=0
@@ -66,10 +68,21 @@ class GeneralProcess(threading.Thread):
         logger.info("%s performing order: %s", self.name, value)
         self._state = "OrderSent"
         self._decision = value
-        #todo implement traitor
+        fakeValue = not self._decision
+        # print "fakevalue", fakeValue
         order = Message(self.name,self._decision, [self.name])
+        fakeOrder = Message(self.name, fakeValue, [self.name])
+        count = 0
+        print order.value
+        print fakeOrder.value
         for lieutenant in self.others:
-            self.sendDecision(order, self.others[lieutenant])
+            count += 1
+            if self._is_traitor and count % 2:
+                # print"fakeOrder"
+                self.sendDecision(fakeOrder, self.others[lieutenant])
+            else:
+                self.sendDecision(order, self.others[lieutenant])
+                # print"order"
 
     def getDecision(self):
         return self._decision
@@ -128,6 +141,7 @@ class GeneralProcess(threading.Thread):
 
     def findLevel(self, n):
         l = []
+        # print("find lvl")
 
         if(self._decisionTree.height < n):
             return None
@@ -137,10 +151,12 @@ class GeneralProcess(threading.Thread):
             for c in l:
                 pom.extend(c.children)
             l = pom
+        # print "dlugosc", len(l)
         return l
 
     def exploreTree(self):
         n = self._decisionTree.height
+        # print "exploreTree, height {0}".format(n)
 
         for i in reversed(range(n)):
             l = self.findLevel(i)
@@ -148,6 +164,7 @@ class GeneralProcess(threading.Thread):
                 fs = 0
                 if len(e.children) == 0:
                     e.oval = e.dval
+                    # print "leaf"
                 for c in e.children:
                     if c.oval is None:
                         c.oval = c.dval
@@ -155,6 +172,7 @@ class GeneralProcess(threading.Thread):
                         fs += 1
                     else:
                         fs -= 1
+                    # print "c.dval: {0}, c.oval: {1}".format( c.dval,c.oval)
                 if fs > 0:
                     e.oval = False
                 elif fs < 0:
@@ -163,7 +181,7 @@ class GeneralProcess(threading.Thread):
                     e.oval = e.dval
 
         self._decision = self._decisionTree.oval
-
+        # print "decyzja",self._decision
         return self._decision
 
 
@@ -214,6 +232,7 @@ class GeneralProcess(threading.Thread):
                     if self._state == "Idle":
                         logger.info("Entering phase 1 of converging (%s)", self.name)
                         self._state= "Converging"
+                        self._givenOrder = message.value
                         if len(message.path) != 1:
                             logger.warn("%s skipped multiple rounds of solution (to %d)", self.name, len(message.path))
                         self.updateTree(message)
@@ -252,12 +271,16 @@ class GeneralProcess(threading.Thread):
                     if self._state == "Converging":
                         if time.time() >self._timeoutTime:
                             logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
-                            self._state = "Converged"
                             self._decision = self.exploreTree()
+                            # if(self._is_traitor is True):
+                            #     self._decision = False
+                            self._state = "Converged"
                             #Do we send remaining messages??
                         if self._uniqueUpdates == self._maxMessages:
                             logger.info("Convergence for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
                             self._decision = self.exploreTree()
+                            # if (self._is_traitor is True):
+                            #     self._decision = False
                             self._state = "Converged"
 
 
@@ -270,7 +293,14 @@ class GeneralProcess(threading.Thread):
         self.sendThread.join()
 
     def sendDecision(self, msg, target):
-        self.sendMessage(msg.packObject(), target.port)
+        # logger.info("%s is sending to %s, path:", self.name, target)
+        if self._is_traitor is True:
+            msg.value = not self._givenOrder
+            send_or_not = True#random.choice([False, True])
+            if send_or_not:
+                self.sendMessage(msg.packObject(), target.port)
+        else:
+            self.sendMessage(msg.packObject(), target.port)
 
     def sendMessage(self, msg, targetId):
         # Put the targetId / message tuple to the queue

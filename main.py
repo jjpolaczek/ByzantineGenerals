@@ -44,6 +44,8 @@ def testComms(no_generals):
 
         for gen in generals:
             gen.join()
+decisionMap={}
+decisions = []
 def byzantineTest(no_generals, no_traitors):
     problemStructure={}
     generals=[]
@@ -86,6 +88,10 @@ def byzantineTest(no_generals, no_traitors):
 
         for gen in generals:
             logger.info("%s state: %s, decision %s", gen.name, gen.getState(),gen._decision)
+            decisions.append(gen._decision)
+
+        decisionMap["N:{0}, T:{1}".format(no_generals,no_traitors)]=decisions
+        del decisions[:]
 
         for gen in generals:
             gen.shutdownFlag.set()
@@ -106,8 +112,13 @@ def main():
     signal.signal(signal.SIGTERM, service_shutdown)
     signal.signal(signal.SIGINT, service_shutdown)
     #testComms(5)
-    byzantineTest(9, 0)
+    byzantineTest(3, 1)
+    byzantineTest(4, 1)
+    byzantineTest(5, 1)
+    byzantineTest(6, 1)
 
+    for key, value in decisionMap.iteritems():
+        print key, value
 
 #proc = GeneralProcess("Hello")
 #proc.start()

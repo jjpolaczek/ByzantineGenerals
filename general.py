@@ -73,8 +73,8 @@ class GeneralProcess(threading.Thread):
         order = Message(self.name,self._decision, [self.name])
         fakeOrder = Message(self.name, fakeValue, [self.name])
         count = 0
-        print order.value
-        print fakeOrder.value
+        #print order.value
+        #print fakeOrder.value
         for lieutenant in self.others:
             count += 1
             if self._is_traitor and count % 2:

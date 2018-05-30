@@ -16,22 +16,23 @@ TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
 
 class GeneralParameters():
-    def __init__(self, recievingPort, isTraitor, testComms=False):
+    def __init__(self, recievingPort, isTraitor, failureRate=0.0, latency_ms=300, latency_variance_ms=100,  testComms=False):
         self.port = recievingPort
         self.isTraitor = isTraitor
+        self.failureRate = failureRate
+        self.latency = latency_ms / 1000.0
+        self.latencyVar = latency_variance_ms / 1000.0
         self.testComms = testComms
 
 class GeneralProcess(threading.Thread):
     def __init__(self, name, problemStructureDict):
         threading.Thread.__init__(self, name=name)
         self.shutdownFlag = threading.Event()
-        self.port = problemStructureDict[name].port
-        self._is_traitor=problemStructureDict[name].isTraitor
-        self._testComms=problemStructureDict[name].testComms
+        self._config = problemStructureDict[name]
         self.receiveQueue = Queue.Queue(maxsize=0)
         self.sendQueue = Queue.Queue(maxsize=0)
-        self.listenThread = self._ReceiveingThread("%s-listener" % self.name, self.port, self.receiveQueue)
-        self.sendThread = self._SendingThread("%s-sender" % self.name, self.port, self.sendQueue)
+        self.listenThread = self._ReceiveingThread("%s-listener" % self.name, self._config.port, self.receiveQueue)
+        self.sendThread = self._SendingThread("%s-sender" % self.name, self._config.port, self.sendQueue, self._config)
         self.others = problemStructureDict.copy()
         if self.others.pop(self.name) is None:
             raise AttributeError("Did not find self in soluton")
@@ -69,20 +70,11 @@ class GeneralProcess(threading.Thread):
         self._state = "OrderSent"
         self._decision = value
         fakeValue = not self._decision
-        # print "fakevalue", fakeValue
         order = Message(self.name,self._decision, [self.name])
         fakeOrder = Message(self.name, fakeValue, [self.name])
-        count = 0
-        #print order.value
-        #print fakeOrder.value
+
         for lieutenant in self.others:
-            count += 1
-            if self._is_traitor and count % 2:
-                # print"fakeOrder"
-                self.sendDecision(fakeOrder, self.others[lieutenant])
-            else:
-                self.sendDecision(order, self.others[lieutenant])
-                # print"order"
+            self.sendDecision(order, self.others[lieutenant])
 
     def getDecision(self):
         return self._decision
@@ -210,7 +202,7 @@ class GeneralProcess(threading.Thread):
 
             #print "MainLoop %s" % self.name
             data = self.getMessage()
-            if self._testComms:
+            if self._config.testComms:
                 if data is not None:
                     logger.info("%s received : %s", self.name, data)
                 # Send a random message to someone else
@@ -219,7 +211,7 @@ class GeneralProcess(threading.Thread):
                     self.sendMessage("Message to %s from %s" % (receiveingGeneral, self.name), self.others[receiveingGeneral].port)
                 elif random.randint(0,5) == 5:
                     self.sendMessage("Message to self %s from %s" % (self.name, self.name),
-                                     self.port)
+                                     self._config.port)
             else:
                 #Main program activity
                 message = None
@@ -272,15 +264,13 @@ class GeneralProcess(threading.Thread):
                         if time.time() >self._timeoutTime:
                             logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
                             self._decision = self.exploreTree()
-                            # if(self._is_traitor is True):
-                            #     self._decision = False
+
                             self._state = "Converged"
                             #Do we send remaining messages??
                         if self._uniqueUpdates == self._maxMessages:
                             logger.info("Convergence for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
                             self._decision = self.exploreTree()
-                            # if (self._is_traitor is True):
-                            #     self._decision = False
+
                             self._state = "Converged"
 
 
@@ -294,17 +284,11 @@ class GeneralProcess(threading.Thread):
 
     def sendDecision(self, msg, target):
         # logger.info("%s is sending to %s, path:", self.name, target)
-        if self._is_traitor is True:
-            msg.value = not self._givenOrder
-            send_or_not = True#random.choice([False, True])
-            if send_or_not:
-                self.sendMessage(msg.packObject(), target.port)
-        else:
-            self.sendMessage(msg.packObject(), target.port)
+        self.sendMessage(msg.packObject(), target.port)
 
     def sendMessage(self, msg, targetId):
         # Put the targetId / message tuple to the queue
-        self.sendQueue.put((targetId, msg))
+        self.sendQueue.put((targetId, msg, time.time()))
 
     def getMessage(self):
         try:
@@ -384,34 +368,59 @@ class GeneralProcess(threading.Thread):
 
     class _SendingThread(threading.Thread):
 
-        def __init__(self, name, port, sendQueue):
+        def __init__(self, name, port, sendQueue, config):
             threading.Thread.__init__(self, name=name)
             self.shutdownFlag = threading.Event()
             self.port = port
             self.queue = sendQueue
+            self._config = config
+            self.waitList = []
 
         def run(self):
 
             t = threading.current_thread()
             while not self.shutdownFlag.is_set():
                 try:
+                    #This is perhaps not the moste efficient way to do it but simulates the network fairly well...
+                    #item is: (port, message, timestamp)
                     item = self.queue.get(block=True, timeout=0.1)
-                    self.sendMessage(item[0], item[1])
-                    self.queue.task_done()
+                    #Add random variance to timeout
+                    latencyVariance = random.uniform(-self._config.latencyVar, self._config.latencyVar)
+                    if (item[2] + self._config.latency + latencyVariance) > time.time():
+                        #Creating new item tuple to pass the same latency variance
+                        self.waitList.append((item[0], item[1], item[2] + latencyVariance))
+                    else:
+                        self.sendMessage(item[0], item[1])
                 except Queue.Empty:
-                    pass
+                    if len(self.waitList) > 0:
+                        #Get values over timeout value
+                        toSend = [s for s in self.waitList if ((s[2] + self._config.latency) < time.time())]
+                        #Update the list of waiting messages
+                        newWaitList = []
+                        for item in self.waitList:
+                            if item not in toSend:
+                                newWaitList.append(item)
+                        self.waitList = newWaitList
+                        #Send the required messages
+                        for msg in toSend:
+                            self.sendMessage(msg[0], msg[1])
 
             logger.debug("Stopping %s as you wish." % self.name)
 
 
         def sendMessage(self, port, msg):
+            #Logic to drop messages based on failure ratio:
+            if self._config.failureRate > random.random():
+                self.queue.task_done()
+                return
             # For now connect on each message send (will be improved in the future to maintain connections)
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
                 s.connect((TCP_IP, port))
                 s.send(msg)
+                self.queue.task_done()
                 #logger.debug( "Send message to port %d" % port)
             except socket.error as e:
-                logger.debug("Exception while sending (%d -> %d) ::%s" % (self.port, port,e))
+                logger.error("Exception while sending (%d -> %d) ::%s" % (self.port, port,e))
                 return
             s.close()

@@ -167,7 +167,7 @@ def main():
     signal.signal(signal.SIGINT, service_shutdown)
     #Create test object and run tests
     tester = TestSolution()
-    generalCountTested = range(3, 6)
+    generalCountTested = range(3, 8)
     retries = 2
 
     for gen_count in generalCountTested:

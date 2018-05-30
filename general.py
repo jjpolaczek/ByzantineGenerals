@@ -16,7 +16,7 @@ TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
 
 class GeneralParameters():
-    def __init__(self, recievingPort, isTraitor, failureRate=0.0, latency_ms=300, latency_variance_ms=100,  testComms=False):
+    def __init__(self, recievingPort, isTraitor, failureRate=0.1, latency_ms=0, latency_variance_ms=0,  testComms=False):
         self.port = recievingPort
         self.isTraitor = isTraitor
         self.failureRate = failureRate
@@ -261,8 +261,8 @@ class GeneralProcess(threading.Thread):
 
                 else:
                     if self._state == "Converging":
-                        if time.time() >self._timeoutTime:
-                            logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
+                        if time.time() > self._timeoutTime:
+                            logger.warn("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
                             self._decision = self.exploreTree()
 
                             self._state = "Converged"
@@ -284,6 +284,9 @@ class GeneralProcess(threading.Thread):
 
     def sendDecision(self, msg, target):
         # logger.info("%s is sending to %s, path:", self.name, target)
+        if self._config.isTraitor:
+            if bool(random.getrandbits(1)):
+                msg.value = not msg.value
         self.sendMessage(msg.packObject(), target.port)
 
     def sendMessage(self, msg, targetId):

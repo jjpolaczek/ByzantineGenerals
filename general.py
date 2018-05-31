@@ -96,7 +96,10 @@ class GeneralProcess(threading.Thread):
         #tmpNode = self._decisionTree
         #printNode(tmpNode, indent)
         for pre, _, node in RenderTree(self._decisionTree):
-            print("%s%s -- dval: %s, oval: %s, fake: %s" % (pre, node.id, node.dval, node.oval, node.dbg_real))
+            if len(node.children) == 0:
+                print("%s%s --  (%s) IN: %s," % (pre, node.id, node.dbg_real, node.dval))
+            else:
+                print("%s%s ------- OUT: %s," % (pre, node.id, node.oval))
 
     def updateTree(self, message):
         value = message.value
@@ -106,7 +109,14 @@ class GeneralProcess(threading.Thread):
         #Initialize the tree if needed
         if self._decisionTree is None:
             #logger.debug("(%s) adding root %s", self.name, path)
-            self._decisionTree = AnyNode(id=path[0], dval=value,oval=None, dbg_real=len(path) == 1)
+            self._decisionTree = AnyNode(id=path[0], dval=None,oval=None, dbg_real=len(path) == 1)
+            tmpNode= self._decisionTree
+            for nodeName in path[1:]:
+                #If last element:
+                if nodeName == path[-1]:
+                    tmpNode = AnyNode(id=nodeName, parent=tmpNode, dval=value, oval=None, dbg_real=True)
+                else:
+                    tmpNode = AnyNode(id=nodeName, parent=tmpNode,  dval=None,oval=None, dbg_real=False)
             return
         #Take node from root:
         tmpNode=self._decisionTree
@@ -127,8 +137,7 @@ class GeneralProcess(threading.Thread):
                     continue
             if not exists:
                 #If got here, need to add tree child as it does not exist
-                tmpNode = AnyNode(id=path[i],parent=tmpNode, dval=value, oval=None, dbg_real=False) #TODO - is this really good idea to use value as dval here?
-                #self._debugCounter2 += 1
+                tmpNode = AnyNode(id=path[i],parent=tmpNode, dval=None, oval=None, dbg_real=False)
                 #logger.debug("(%s)Adding fake node at path %s (id=%s) %s", self.name, path[:i+1], path[i], path)
 
         #Finally add the leaf to the tree (after checking if the children exist)
@@ -170,7 +179,7 @@ class GeneralProcess(threading.Thread):
                     missingValues.remove(child.id)
             count = 0
             for missing in missingValues:
-                newNode = AnyNode(id=missing, parent=node, dval=None, oval=None, dbg_real=False)
+                newNode = AnyNode(id=missing, parent=node, dval=DEFAULT_DECISION, oval=None, dbg_real=False)
                 count += checkNode(newNode, terminator, possibleValues, path[:])
             return count
 
@@ -195,22 +204,25 @@ class GeneralProcess(threading.Thread):
         n = self._decisionTree.height
         # print "exploreTree, height {0}".format(n)
 
-        for i in reversed(range(n)):
+        for i in reversed(range(n + 1)):
             nodesAtLevel = self.findLevel(i)
             for node in nodesAtLevel:
                 votesFalse = 0
                 if len(node.children) == 0:
                     node.oval = node.dval
-                    # print "leaf"
+
                 for c in node.children:
                     if c.oval is None:
-                        c.oval = c.dval
+                        logger.error("%s Could not find output value of node %s at level %s", self.name, c.id, i)
                     if c.oval is False:
                         votesFalse += 1
                     else:
                         votesFalse -= 1
                     # print "c.dval: {0}, c.oval: {1}".format( c.dval,c.oval)
-                if votesFalse > 0:
+
+                if len(node.children) == 0:
+                    pass
+                elif votesFalse > 0:
                     node.oval = False
                 elif votesFalse < 0:
                     node.oval = True

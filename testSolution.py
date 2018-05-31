@@ -53,12 +53,16 @@ class TestSolution():
         self.commanderNum = None
         self.basePort = basePort
 
-    def _setup(self, no_generals, no_traitors, latencyAvgms=0, latencyDiffms=0):
+    def _setup(self, no_generals, no_traitors, latencyAvgms=0, latencyDiffms=0, traitorFailRate=0.0, globalFailRate=0.0):
         # Create traitors listing:
         traitors = random.sample(range(no_generals), no_traitors)
         logger.debug("Traitors are %s", self.traitors)
         for i in range(no_generals):
-            self.problemStructure["General_%d" % i] = GeneralParameters(recievingPort=self.basePort + i,sendingPort=self.basePort + i + 100, isTraitor=(i in traitors), latency_ms=latencyAvgms, latency_variance_ms=latencyDiffms)
+            failRate = globalFailRate
+            if i in traitors:
+                failRate = globalFailRate
+            self.problemStructure["General_%d" % i] = GeneralParameters(recievingPort=self.basePort + i,sendingPort=self.basePort + i + 100,
+                                                                        isTraitor=(i in traitors), latency_ms=latencyAvgms, latency_variance_ms=latencyDiffms, failureRate=failRate)
             #Append traitor names
             if i in traitors:
                 self.traitors.append("General_%d" % i)
@@ -207,22 +211,23 @@ class TestSolution():
         return result
 
     def byzantineTestWithLatency(self, no_generals, no_traitors, latencyMin, latencyMax):
-        result=None
+        result = None
         tstart = time.time()
-        logger.info("Simulation for %d generals and %d traitors with latency from %dms to %dms", no_generals, no_traitors, latencyMin, latencyMax)
+        logger.info("Simulation for %d generals and %d traitors with latency from %dms to %dms", no_generals,
+                    no_traitors, latencyMin, latencyMax)
         try:
-            self._setup(no_generals, no_traitors, (latencyMax + latencyMin) / 2.0, latencyMax - latencyMin)
+            self._setup(no_generals, no_traitors, latencyAvgms=(latencyMax + latencyMin) / 2.0, latencyDiffms=latencyMax - latencyMin)
             self._start()
-            #Pick a random general ro pass the decision to the network
-            selection=random.choice(range(no_generals))
-            logger.debug( "Selected %s to be a commanding general" % self.generals[selection].name)
+            # Pick a random general ro pass the decision to the network
+            selection = random.choice(range(no_generals))
+            logger.debug("Selected %s to be a commanding general" % self.generals[selection].name)
             self.commanderNum = selection
-            #Pick random decision to be made
+            # Pick random decision to be made
             decision = random.choice([False, True])
             logger.debug("Selected %s to be the decision" % decision)
-            #Execute the order
+            # Execute the order
             self.generals[selection].performOrder(decision)
-            #wait for convergence
+            # wait for convergence
             self._converge(self.generals[0]._timeoutS + 10)
             result = self._verify()
             logger.info("IC1: %s, IC2: %s" % result)
@@ -236,6 +241,42 @@ class TestSolution():
             self._cleanup()
         logger.info("Completed in %fs", time.time() - tstart)
         return result
+
+    def byzantineTestWithLinkFailsandLatency(self, no_generals, no_traitors, traitorFailRate=0.0, globalFailRate=0.0, latencyMin=0.0, latencyMax=0.0):
+        result = None
+        tstart = time.time()
+        logger.info("Simulation for %d generals and %d traitors with traitors having %f failure rate, others %f", no_generals,
+                    no_traitors, traitorFailRate, globalFailRate)
+        logger.info("Latency settings from %dms to %dms", latencyMin, latencyMax)
+        try:
+            self._setup(no_generals, no_traitors, traitorFailRate=traitorFailRate, globalFailRate=globalFailRate,
+                        latencyAvgms=(latencyMax + latencyMin) / 2.0, latencyDiffms=latencyMax - latencyMin)
+            self._start()
+            # Pick a random general ro pass the decision to the network
+            selection = random.choice(range(no_generals))
+            logger.debug("Selected %s to be a commanding general" % self.generals[selection].name)
+            self.commanderNum = selection
+            # Pick random decision to be made
+            decision = random.choice([False, True])
+            logger.debug("Selected %s to be the decision" % decision)
+            # Execute the order
+            self.generals[selection].performOrder(decision)
+            # wait for convergence
+            self._converge(self.generals[0]._timeoutS + 10)
+            result = self._verify()
+            logger.info("IC1: %s, IC2: %s" % result)
+            self._printIfFail(result)
+
+            self._cleanup()
+        except ServiceExit:
+            self._cleanup()
+        except Exception as e:
+            logger.error("Caught unexpected exception in the test: %s", e)
+            self._cleanup()
+        logger.info("Completed in %fs", time.time() - tstart)
+        return result
+
+
 def main():
     # Register the signal handlers
     logging.basicConfig(level=logging.WARN)
@@ -246,10 +287,7 @@ def main():
     tester = TestSolution()
     generalCountTested = range(3, 8)
     retries = 2
-    #return
-    #tester.byzantineTest(4, 1)
-    #tester.byzantineTest(4, 1)
-    #return
+
     #Basic testing loop for traitorous and faithful generals
     for gen_count in generalCountTested:
         #3m +1 generals cope with m traitors so
@@ -270,7 +308,7 @@ def main():
             for retry in range(retries):
                 tester.byzantineTestCommanderTraitor(gen_count, traitors)
 
-    # Testing loop for traitorous commanding generals with latency
+    # Testing loop for traitorous and faithful generals with latency
     retries = 2
     generalCountTested = range(4, 8)
     latencyMin_ms = 100
@@ -282,5 +320,24 @@ def main():
         for traitors in range(0, max_traitors + 1):
             for retry in range(retries):
                 tester.byzantineTestWithLatency(gen_count, traitors, latencyMin_ms, latencyMax_ms)
+
+
+    # Testing loop for traitorous and faithful generals  with latency and failures
+    retries = 2
+    generalCountTested = range(4, 8)
+    latencyMin_ms = 100
+    latencyMax_ms = 300
+    traitorFailRates = [0.2, 0.8, 1.0]
+    globalFailRates = [0.0, 0.05]
+
+    for gen_count in generalCountTested:
+        #3m +1 generals cope with m traitors so
+        # for k generals we can have (k - 1) / 3 traitors rounded down
+        max_traitors = int((gen_count - 1) / 3.0)
+        for traitors in range(0, max_traitors + 1):
+            for t_failrate in traitorFailRates:
+                for g_failrate in globalFailRates:
+                    for retry in range(retries):
+                        tester.byzantineTestWithLinkFailsandLatency(gen_count, traitors, t_failrate, g_failrate, latencyMin_ms, latencyMax_ms)
 if __name__ == '__main__':
     main()

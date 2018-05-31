@@ -160,7 +160,7 @@ class GeneralProcess(threading.Thread):
         if exists:
             tmpNode.dval = value
             tmpNode.dbg_real=True
-            logger.warn("(%s)Updating node %s", self.name, path)
+            logger.warn("(%s)Updating node late after it's creation %s", self.name, path)
         else:
             #logger.debug("(%s)Adding node at path %s", self.name, path)
             newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)

@@ -16,8 +16,9 @@ TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
 DEFAULT_DECISION=False
 class GeneralParameters():
-    def __init__(self, recievingPort, isTraitor, failureRate=0.0, latency_ms=0, latency_variance_ms=0,  testComms=False):
+    def __init__(self, recievingPort, sendingPort, isTraitor, failureRate=0.0, latency_ms=0, latency_variance_ms=0,  testComms=False):
         self.port = recievingPort
+        self.sPort = sendingPort
         self.isTraitor = isTraitor
         self.failureRate = failureRate
         self.latency = latency_ms / 1000.0
@@ -32,8 +33,9 @@ class GeneralProcess(threading.Thread):
         self.receiveQueue = Queue.Queue(maxsize=0)
         self.sendQueue = Queue.Queue(maxsize=0)
         self.listenThread = self._ReceiveingThread("%s-listener" % self.name, self._config.port, self.receiveQueue)
-        self.sendThread = self._SendingThread("%s-sender" % self.name, self._config.port, self.sendQueue, self._config)
+        self.sendThread = self._SendingThread("%s-sender" % self.name, self._config.sPort, self.sendQueue, self._config)
         self.others = problemStructureDict.copy()
+        self._maxFaulty = int((len(self.others) - 1) / 3.0)
         if self.others.pop(self.name) is None:
             raise AttributeError("Did not find self in soluton")
         #Initialize self state
@@ -46,18 +48,23 @@ class GeneralProcess(threading.Thread):
         self._givenOrder=None
         self._decisionTree=None
 
+
         self._debugCounter=0
         self._uniqueUpdates=0
 
     def _getMaxMessages(self, generals):
         # First message (order)
         # count = generals - 1
-        count = 0
+        #1 for the general
+        count = 1
         # Subsequent messages
         round = 1
-        for i in range(1, generals, 1):
+        depth = self._maxFaulty
+        if depth == 0:
+            depth +=1
+        for i in range(1, depth + 1):
             tmp = 1
-            for j in range(2, i+1, 1):
+            for j in range(1, i+1, 1):
                 tmp *= (generals - j)
             count += tmp
         return count
@@ -99,7 +106,7 @@ class GeneralProcess(threading.Thread):
             if len(node.children) == 0:
                 print("%s%s --  (%s) IN: %s," % (pre, node.id, node.dbg_real, node.dval))
             else:
-                print("%s%s ------- OUT: %s," % (pre, node.id, node.oval))
+                print("%s%s --%s---- OUT: %s," % (pre, node.id, node.dval,node.oval))
 
     def updateTree(self, message):
         value = message.value
@@ -162,29 +169,31 @@ class GeneralProcess(threading.Thread):
     def verifyTree(self):
         #get others variable
         others = self.others.keys()
-        others.append(self.name)
         #recursively go through the tree looking for missing permutations and filling with default value
-        def checkNode(node, terminator, possibleValues, path):
+        def checkNode(node, depth, possibleValues, path):
             path.append(node.id)
-            if node.id == terminator:
-                if node.dval is None:
-                    node.dval = DEFAULT_DECISION
-                    logger.warn("%s made correction at %s", self.name, path)
-                    return 1
+            if depth < 0:
                 return 0
             possibleValues.remove(node.id)
             children = node.children
-            missingValues = possibleValues
+            missingValues = possibleValues[:]
+
+            count = 0
             for child in children:
                 if child.id in missingValues:
                     missingValues.remove(child.id)
-            count = 0
+                    count += checkNode(child, depth - 1, possibleValues[:], path[:])
+
             for missing in missingValues:
+                logger.debug("%s depth %d, %s", self.name, depth, path)
                 newNode = AnyNode(id=missing, parent=node, dval=DEFAULT_DECISION, oval=None, dbg_real=False)
-                count += checkNode(newNode, terminator, possibleValues, path[:])
+                count += checkNode(newNode, depth - 1, possibleValues[:], path[:]) + 1
             return count
 
-        corrections = checkNode(self._decisionTree, self.name, others, [])
+        maxDepth = self._maxFaulty
+        if maxDepth > 0:
+            maxDepth -= 1
+        corrections = checkNode(self._decisionTree, maxDepth, others, [])
         if corrections > 0:
             logger.warn("%s made %d corrections", self.name, corrections)
 
@@ -219,7 +228,13 @@ class GeneralProcess(threading.Thread):
                         votesFalse += 1
                     else:
                         votesFalse -= 1
-                    # print "c.dval: {0}, c.oval: {1}".format( c.dval,c.oval)
+                #Count value of self dval in majority vote
+                if False:
+                    if node.dval is False:
+                        votesFalse += 1
+                    elif node.dval is True:
+                        votesFalse -= 1
+                        # print "c.dval: {0}, c.oval: {1}".format( c.dval,c.oval)
 
                 if len(node.children) == 0:
                     pass
@@ -228,8 +243,8 @@ class GeneralProcess(threading.Thread):
                 elif votesFalse < 0:
                     node.oval = True
                 else:
-                    #Random decision if unsure
-                    node.oval = bool(random.getrandbits(1))
+                    #Defalt decision if if unsure
+                    node.oval = DEFAULT_DECISION
 
         self._decision = self._decisionTree.oval
         # print "decyzja",self._decision
@@ -237,18 +252,26 @@ class GeneralProcess(threading.Thread):
 
 
     def getChildMessages(self, message):
-        newPath = message.path
-        newPath.append(self.name)
         messages = []
-        for key in self.others:
-            if key == self._decisionTree.id:
-                #Skip sending to general
-                continue
-            if key not in newPath:
-                #Skip sending to paths forming cycles
-                #print newPath
+        #Second condition is to limit recursion depth
+        maxDepth = self._maxFaulty
+        if maxDepth == 0:
+            maxDepth += 1
+        if self.name not in message.path and len(message.path) <= maxDepth:
+            newPath = message.path[:]
+            newPath.append(self.name)
+            debug = []
+            for key in self.others:
+                if key == message.path[0]:
+                    #Skip sending to general
+                    continue
+                # broadcast to all others
                 messages.append((key, Message(self.name, message.value, newPath)))
-                #logger.debug("(%s) Generating message of path %s", self.name, tmpPath)
+                debug.append(key)
+            #also prepare sending to self
+            messages.append((self.name, Message(self.name, message.value, newPath)))
+            debug.append(self.name)
+            #logger.warn(" %s -----%s sending %s to %s", message.value, self.name, newPath, debug)
         return messages
 
     def run(self):
@@ -298,18 +321,15 @@ class GeneralProcess(threading.Thread):
                         #self.updateTree(message)
 
                         # First send the message to self (update tree for self value)
-                        if self.name not in message.path:
-                            #logger.debug("%s Adding to self %s", self.name, message.path)
-                            tmpPath = message.path[:]
-                            tmpPath.append(self.name)
-                            selfMessage = Message(self.name, message.value, tmpPath)
-                            self.updateTree(selfMessage)
-                        else:
-                            logger.error("%s found self name in message path %s", self.name, message.path)
+                        self.updateTree(message)
                         # update state tree and forward child messages to other processes
                         childMessages = self.getChildMessages(message)
                         for msg in childMessages:
-                            self.sendDecision(msg[1], self.others[msg[0]])
+                            if msg[0] == self.name:
+                                #Do not need to send msd to self
+                                self.updateTree(msg[1])
+                            else:
+                                self.sendDecision(msg[1], self.others[msg[0]])
 
                         #start timeout timer for next rounds
                         self._timeoutTime = time.time() + self._timeoutS
@@ -317,19 +337,15 @@ class GeneralProcess(threading.Thread):
                     elif self._state == "Converging":
                         # First send the message to self (update tree for self value)
 
-                        #logger.info("Got message with path %s (%s)", message.path, self.name)
-                        if self.name not in message.path:
-                            #logger.debug("%s Adding to self %s", self.name, message.path)
-                            tmpPath = message.path[:]
-                            tmpPath.append(self.name)
-                            selfMessage = Message(self.name, message.value, tmpPath)
-                            self.updateTree(selfMessage)
-                        else:
-                            logger.error("%s found self name in message path %s", self.name, message.path)
+                        self.updateTree(message)
                         # update state tree and forward child messages to other processes
                         childMessages = self.getChildMessages(message)
                         for msg in childMessages:
-                            self.sendDecision(msg[1], self.others[msg[0]])
+                            if msg[0] == self.name:
+                                #Do not need to send msd to self
+                                self.updateTree(msg[1])
+                            else:
+                                self.sendDecision(msg[1], self.others[msg[0]])
 
                 else:
                     if self._state == "Converging":
@@ -498,6 +514,7 @@ class GeneralProcess(threading.Thread):
                 return
             # For now connect on each message send (will be improved in the future to maintain connections)
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.connect((TCP_IP, port))
                 s.send(msg)
@@ -505,5 +522,6 @@ class GeneralProcess(threading.Thread):
                 #logger.debug( "Send message to port %d" % port)
             except socket.error as e:
                 logger.error("Exception while sending (%d -> %d) ::%s" % (self.port, port,e))
+                s.close()
                 return
             s.close()

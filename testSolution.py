@@ -53,12 +53,12 @@ class TestSolution():
         self.commanderNum = None
         self.basePort = basePort
 
-    def _setup(self, no_generals, no_traitors, failModes):
+    def _setup(self, no_generals, no_traitors, latencyAvgms=0, latencyDiffms=0):
         # Create traitors listing:
         traitors = random.sample(range(no_generals), no_traitors)
         logger.debug("Traitors are %s", self.traitors)
         for i in range(no_generals):
-            self.problemStructure["General_%d" % i] = GeneralParameters(recievingPort=self.basePort + i, isTraitor=(i in traitors))
+            self.problemStructure["General_%d" % i] = GeneralParameters(recievingPort=self.basePort + i, isTraitor=(i in traitors), latency_ms=latencyAvgms, latency_variance_ms=latencyDiffms)
             #Append traitor names
             if i in traitors:
                 self.traitors.append("General_%d" % i)
@@ -109,10 +109,9 @@ class TestSolution():
         decisions = []
         for gen in self.generals:
             # skip lieutenant
-            if gen.name == self.generals[self.commanderNum].name:
-                continue
-            if gen.name not in self.traitors:
-                decisions.append(gen.getDecision())
+            if gen.name != self.generals[self.commanderNum].name:
+                if gen.name not in self.traitors:
+                    decisions.append(gen.getDecision())
         #If there is not one unique decision it will state false
         IC1 = len(set(decisions)) == 1
         #IC2. If the commanding general is loyal then every loyal lieutenant obeys the same order he sends
@@ -125,12 +124,21 @@ class TestSolution():
             IC2 = None
         return (IC1, IC2)
 
+    def _printIfFail(self, result):
+        if (result[0] is not True) or (result[1] not in [None, True]):
+            failed = True
+            logger.warn("Failed Conditions for %d generals and %d traitors", len(self.generals), len(self.traitors))
+            logger.warn("Commander: %s", self.generals[self.commanderNum].name)
+            logger.warn("Traitors: %s", self.traitors)
+            for gen in self.generals:
+                logger.info("%s state: %s, decision %s", gen.name, gen.getState(), gen._decision)
+                gen.debugStateTree()
     def byzantineTest(self, no_generals, no_traitors):
         result=None
         tstart = time.time()
         logger.info("Simulation for %d generals and %d traitors", no_generals, no_traitors)
         try:
-            self._setup(no_generals, no_traitors, None)
+            self._setup(no_generals, no_traitors)
             self._start()
             #Pick a random general ro pass the decision to the network
             selection=random.choice(range(no_generals))
@@ -144,10 +152,8 @@ class TestSolution():
             #wait for convergence
             self._converge(self.generals[0]._timeoutS + 5)
             result = self._verify()
-
             logger.info("IC1: %s, IC2: %s" % result)
-            for gen in self.generals:
-                logger.debug("%s state: %s, decision %s", gen.name, gen.getState(), gen._decision)
+            self._printIfFail(result)
 
             self._cleanup()
         except ServiceExit:
@@ -155,21 +161,88 @@ class TestSolution():
         except Exception as e:
             logger.error("Caught unexpected exception in the test: %s", e)
             self._cleanup()
-
         logger.info("Completed in %fs", time.time() - tstart)
         return result
 
+    def byzantineTestCommanderTraitor(self, no_generals, no_additional_traitors):
+        no_traitors = no_additional_traitors + 1
+        result = None
+        tstart = time.time()
+        logger.info("Simulation for %d generals and %d traitors", no_generals, no_traitors)
+        try:
+            self._setup(no_generals, no_traitors)
+            self._start()
+            # Pick a traitor to be a general ro pass the decision to the network
+            selection = 0
+            for gen in self.generals:
+                if gen.name in self.traitors:
+                    break
+                else:
+                    selection += 1
+            logger.debug("Selected %s to be a commanding (traitor) general" % self.generals[selection].name)
+            self.commanderNum = selection
+            # Pick random decision to be made
+            decision = random.choice([False, True])
+            logger.debug("Selected %s to be the decision" % decision)
+            # Execute the order
+            self.generals[selection].performOrder(decision)
+            # wait for convergence
+            self._converge(self.generals[0]._timeoutS + 5)
+            result = self._verify()
+            logger.info("IC1: %s, IC2: %s" % result)
+            self._printIfFail(result)
+
+            self._cleanup()
+        except ServiceExit:
+            self._cleanup()
+        except Exception as e:
+            logger.error("Caught unexpected exception in the test: %s", e)
+            self._cleanup()
+        logger.info("Completed in %fs", time.time() - tstart)
+        return result
+
+    def byzantineTestWithLatency(self, no_generals, no_traitors, latencyMin, latencyMax):
+        result=None
+        tstart = time.time()
+        logger.info("Simulation for %d generals and %d traitors", no_generals, no_traitors)
+        try:
+            self._setup(no_generals, no_traitors, (latencyMax + latencyMin) / 2.0, latencyMax - latencyMin)
+            self._start()
+            #Pick a random general ro pass the decision to the network
+            selection=random.choice(range(no_generals))
+            logger.debug( "Selected %s to be a commanding general" % self.generals[selection].name)
+            self.commanderNum = selection
+            #Pick random decision to be made
+            decision = random.choice([False, True])
+            logger.debug("Selected %s to be the decision" % decision)
+            #Execute the order
+            self.generals[selection].performOrder(decision)
+            #wait for convergence
+            self._converge(self.generals[0]._timeoutS + 5)
+            result = self._verify()
+            logger.info("IC1: %s, IC2: %s" % result)
+            self._printIfFail(result)
+
+            self._cleanup()
+        except ServiceExit:
+            self._cleanup()
+        except Exception as e:
+            logger.error("Caught unexpected exception in the test: %s", e)
+            self._cleanup()
+        logger.info("Completed in %fs", time.time() - tstart)
+        return result
 def main():
     # Register the signal handlers
-    logging.basicConfig(level=logging.ERROR)
+    logging.basicConfig(level=logging.WARN)
     logging.getLogger('__main__').setLevel(logging.INFO)
     signal.signal(signal.SIGTERM, service_shutdown)
     signal.signal(signal.SIGINT, service_shutdown)
     #Create test object and run tests
     tester = TestSolution()
-    generalCountTested = range(3, 8)
-    retries = 2
+    generalCountTested = range(5, 6)
+    retries = 1
 
+    #Basic testing loop for traitorous and faithful generals
     for gen_count in generalCountTested:
         #3m +1 generals cope with m traitors so
         # for k generals we can have (k - 1) / 3 traitors rounded down
@@ -177,7 +250,16 @@ def main():
         for traitors in range(0, max_traitors + 1):
             for retry in range(retries):
                 tester.byzantineTest(gen_count, traitors)
-
-
+    return
+    # Testing loop for traitorous commanding generals
+    retries = 0
+    generalCountTested = range(4, 6)
+    for gen_count in generalCountTested:
+        #3m +1 generals cope with m traitors so
+        # for k generals we can have (k - 1) / 3 traitors rounded down
+        additional_traitors = int((gen_count - 1) / 3.0) - 1 # this will not work for general count below 4 (al least 1 traitor must be)
+        for traitors in range(0, additional_traitors + 1):
+            for retry in range(retries):
+                tester.byzantineTestCommanderTraitor(gen_count, traitors)
 if __name__ == '__main__':
     main()

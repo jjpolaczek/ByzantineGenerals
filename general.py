@@ -6,7 +6,7 @@ import select
 import Queue
 import random
 import logging
-from anytree import AnyNode
+from anytree import AnyNode, RenderTree
 from message import Message
 from exceptions import AttributeError
 import copy
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 BUFFER_SIZE = 1024
 TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
-
+DEFAULT_DECISION=False
 class GeneralParameters():
     def __init__(self, recievingPort, isTraitor, failureRate=0.1, latency_ms=0, latency_variance_ms=0,  testComms=False):
         self.port = recievingPort
@@ -79,6 +79,25 @@ class GeneralProcess(threading.Thread):
     def getDecision(self):
         return self._decision
 
+    def debugStateTree(self):
+        #Explore and print tree state
+        if self._decisionTree is None:
+            #logger.warn("Decision Tree of %s empty! Cannot print", self.name )
+            print "Decision Tree of %s empty! Cannot print" % self.name
+            return
+
+        def printNode(node, indent):
+            indentStr = indent * "\t"
+            print "%sNode_ID: %s, parent: %s, dval=%s, oval=%s" % (indentStr, node.id, node.parent, node.dval, node.oval)
+
+        print "Printing tree of %s" % self.name
+
+        #indent = 0
+        #tmpNode = self._decisionTree
+        #printNode(tmpNode, indent)
+        for pre, _, node in RenderTree(self._decisionTree):
+            print("%s%s -- dval: %s, oval: %s, fake: %s" % (pre, node.id, node.dval, node.oval, node.dbg_real))
+
     def updateTree(self, message):
         value = message.value
         path = message.path
@@ -108,7 +127,7 @@ class GeneralProcess(threading.Thread):
                     continue
             if not exists:
                 #If got here, need to add tree child as it does not exist
-                tmpNode = AnyNode(id=path[i],parent=tmpNode, dval=value, oval=None, dbg_real=False)
+                tmpNode = AnyNode(id=path[i],parent=tmpNode, dval=value, oval=None, dbg_real=False) #TODO - is this really good idea to use value as dval here?
                 #self._debugCounter2 += 1
                 #logger.debug("(%s)Adding fake node at path %s (id=%s) %s", self.name, path[:i+1], path[i], path)
 
@@ -130,47 +149,74 @@ class GeneralProcess(threading.Thread):
             newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
             self._uniqueUpdates += 1
 
+    def verifyTree(self):
+        #get others variable
+        others = self.others.keys()
+        others.append(self.name)
+        #recursively go through the tree looking for missing permutations and filling with default value
+        def checkNode(node, terminator, possibleValues, path):
+            path.append(node.id)
+            if node.id == terminator:
+                if node.dval is None:
+                    node.dval = DEFAULT_DECISION
+                    logger.warn("%s made correction at %s", self.name, path)
+                    return 1
+                return 0
+            possibleValues.remove(node.id)
+            children = node.children
+            missingValues = possibleValues
+            for child in children:
+                if child.id in missingValues:
+                    missingValues.remove(child.id)
+            count = 0
+            for missing in missingValues:
+                newNode = AnyNode(id=missing, parent=node, dval=None, oval=None, dbg_real=False)
+                count += checkNode(newNode, terminator, possibleValues, path[:])
+            return count
 
-    def findLevel(self, n):
-        l = []
-        # print("find lvl")
+        corrections = checkNode(self._decisionTree, self.name, others, [])
+        if corrections > 0:
+            logger.warn("%s made %d corrections", self.name, corrections)
 
-        if(self._decisionTree.height < n):
+    def findLevel(self, level):
+        nodesAtLevel = []
+        if(self._decisionTree.height < level):
             return None
-        l.append(self._decisionTree)
-        for i in range(n):
-            pom = []
-            for c in l:
-                pom.extend(c.children)
-            l = pom
-        # print "dlugosc", len(l)
-        return l
+        nodesAtLevel.append(self._decisionTree)
+        for i in range(level):
+            tmp = []
+            for c in nodesAtLevel:
+                tmp.extend(c.children)
+            nodesAtLevel = tmp
+        return nodesAtLevel
 
     def exploreTree(self):
+        self.verifyTree()
         n = self._decisionTree.height
         # print "exploreTree, height {0}".format(n)
 
         for i in reversed(range(n)):
-            l = self.findLevel(i)
-            for e in l:
-                fs = 0
-                if len(e.children) == 0:
-                    e.oval = e.dval
+            nodesAtLevel = self.findLevel(i)
+            for node in nodesAtLevel:
+                votesFalse = 0
+                if len(node.children) == 0:
+                    node.oval = node.dval
                     # print "leaf"
-                for c in e.children:
+                for c in node.children:
                     if c.oval is None:
                         c.oval = c.dval
                     if c.oval is False:
-                        fs += 1
+                        votesFalse += 1
                     else:
-                        fs -= 1
+                        votesFalse -= 1
                     # print "c.dval: {0}, c.oval: {1}".format( c.dval,c.oval)
-                if fs > 0:
-                    e.oval = False
-                elif fs < 0:
-                    e.oval = True
+                if votesFalse > 0:
+                    node.oval = False
+                elif votesFalse < 0:
+                    node.oval = True
                 else:
-                    e.oval = e.dval
+                    #Random decision if unsure
+                    node.oval = bool(random.getrandbits(1))
 
         self._decision = self._decisionTree.oval
         # print "decyzja",self._decision
@@ -227,7 +273,7 @@ class GeneralProcess(threading.Thread):
                         self._givenOrder = message.value
                         if len(message.path) != 1:
                             logger.warn("%s skipped multiple rounds of solution (to %d)", self.name, len(message.path))
-                        self.updateTree(message)
+                        #self.updateTree(message)
 
                         # First send the message to self (update tree for self value)
                         if self.name not in message.path:
@@ -236,6 +282,8 @@ class GeneralProcess(threading.Thread):
                             tmpPath.append(self.name)
                             selfMessage = Message(self.name, message.value, tmpPath)
                             self.updateTree(selfMessage)
+                        else:
+                            logger.error("%s found self name in message path %s", self.name, message.path)
                         # update state tree and forward child messages to other processes
                         childMessages = self.getChildMessages(message)
                         for msg in childMessages:
@@ -254,6 +302,8 @@ class GeneralProcess(threading.Thread):
                             tmpPath.append(self.name)
                             selfMessage = Message(self.name, message.value, tmpPath)
                             self.updateTree(selfMessage)
+                        else:
+                            logger.error("%s found self name in message path %s", self.name, message.path)
                         # update state tree and forward child messages to other processes
                         childMessages = self.getChildMessages(message)
                         for msg in childMessages:
@@ -262,7 +312,7 @@ class GeneralProcess(threading.Thread):
                 else:
                     if self._state == "Converging":
                         if time.time() > self._timeoutTime:
-                            logger.warn("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
+                            logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
                             self._decision = self.exploreTree()
 
                             self._state = "Converged"

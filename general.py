@@ -16,7 +16,7 @@ TCP_IP = '127.0.0.1'
 BUFFER_SIZE = 1024
 DEFAULT_DECISION=False
 class GeneralParameters():
-    def __init__(self, recievingPort, isTraitor, failureRate=0.1, latency_ms=0, latency_variance_ms=0,  testComms=False):
+    def __init__(self, recievingPort, isTraitor, failureRate=0.0, latency_ms=0, latency_variance_ms=0,  testComms=False):
         self.port = recievingPort
         self.isTraitor = isTraitor
         self.failureRate = failureRate
@@ -39,7 +39,7 @@ class GeneralProcess(threading.Thread):
         #Initialize self state
         self._state=None
         self._maxMessages = self._getMaxMessages(len(self.others) + 1)
-        self._timeoutS = float(self._maxMessages) * 0.05
+        self._timeoutS = float(self._maxMessages) * 0.05 + 1
         logger.info("Timeout set to %f seconds", self._timeoutS)
         self._timeoutTime = 0
         self._decision=None
@@ -117,6 +117,7 @@ class GeneralProcess(threading.Thread):
                     tmpNode = AnyNode(id=nodeName, parent=tmpNode, dval=value, oval=None, dbg_real=True)
                 else:
                     tmpNode = AnyNode(id=nodeName, parent=tmpNode,  dval=None,oval=None, dbg_real=False)
+            self._uniqueUpdates += 1
             return
         #Take node from root:
         tmpNode=self._decisionTree
@@ -152,7 +153,7 @@ class GeneralProcess(threading.Thread):
         if exists:
             tmpNode.dval = value
             tmpNode.dbg_real=True
-            #logger.debug("(%s)Updating node %s", self.name, path)
+            logger.warn("(%s)Updating node %s", self.name, path)
         else:
             #logger.debug("(%s)Adding node at path %s", self.name, path)
             newNode = AnyNode(id=path[-1], parent=tmpNode, dval=value, oval=None, dbg_real=True)
@@ -254,6 +255,13 @@ class GeneralProcess(threading.Thread):
         self.listenThread.start()
         self.sendThread.start()
         t=threading.current_thread()
+
+        timeout=time.time() + 5.0 # Give 5 seconds for process to start
+        while self.listenThread.getState() != "Idle" and self.sendThread.getState() != "Idle":
+            time.sleep(0.1)
+            if time.time() > timeout:
+                logger.error("Timout exceeded for %s", self.name)
+
         self._state="Idle"
         # Main solution loop
         while not self.shutdownFlag.is_set():
@@ -275,6 +283,8 @@ class GeneralProcess(threading.Thread):
                 message = None
                 if data is not None:
                     message = Message.parseString(data)
+
+                    logger.debug("%s msg with path %s", self.name, message.path)
                     #print message.path
                     self._debugCounter += 1
                     #logger.info("Got message with path %s (%s)", message.path, self.name)
@@ -324,7 +334,7 @@ class GeneralProcess(threading.Thread):
                 else:
                     if self._state == "Converging":
                         if time.time() > self._timeoutTime:
-                            logger.info("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
+                            logger.warn("Timeout reached for %s  exchanged %d messages (%d)", self.name, self._uniqueUpdates, self._maxMessages)
                             self._decision = self.exploreTree()
 
                             self._state = "Converged"
@@ -370,7 +380,10 @@ class GeneralProcess(threading.Thread):
             self.shutdownFlag = threading.Event()
             self.port = port
             self.queue = receiveQueue
+            self.state = None
 
+        def getState(self):
+            return self.state
         def run(self):
             t = threading.current_thread()
             #Based on https://steelkiwi.com/blog/working-tcp-sockets/
@@ -382,6 +395,7 @@ class GeneralProcess(threading.Thread):
             inputs = [readSocket]
             outputs=[]
             message_queues = {}
+            self.state="Idle"
             while not self.shutdownFlag.is_set():
                 readable, writable, exceptional = select.select(
                     inputs, outputs, inputs,0.5)
@@ -440,10 +454,13 @@ class GeneralProcess(threading.Thread):
             self.queue = sendQueue
             self._config = config
             self.waitList = []
+            self.state=None
+        def getState(self):
+            return self.state
 
         def run(self):
-
             t = threading.current_thread()
+            self.state="Idle"
             while not self.shutdownFlag.is_set():
                 try:
                     #This is perhaps not the moste efficient way to do it but simulates the network fairly well...
@@ -475,6 +492,7 @@ class GeneralProcess(threading.Thread):
 
         def sendMessage(self, port, msg):
             #Logic to drop messages based on failure ratio:
+            #logger.debug("%s sending message", self.name)
             if self._config.failureRate > random.random():
                 self.queue.task_done()
                 return

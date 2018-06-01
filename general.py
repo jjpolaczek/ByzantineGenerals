@@ -6,6 +6,7 @@ import select
 import Queue
 import random
 import logging
+
 from anytree import AnyNode, RenderTree
 from message import Message
 from exceptions import AttributeError
@@ -488,7 +489,7 @@ class GeneralProcess(threading.Thread):
                         #Creating new item tuple to pass the same latency variance
                         self.waitList.append((item[0], item[1], item[2] + latencyVariance))
                     else:
-                        self.sendMessage(item[0], item[1])
+                        self.sendMessage(item[0], item[1], item[2] + latencyVariance)
                 except Queue.Empty:
                     if len(self.waitList) > 0:
                         #Get values over timeout value
@@ -501,12 +502,12 @@ class GeneralProcess(threading.Thread):
                         self.waitList = newWaitList
                         #Send the required messages
                         for msg in toSend:
-                            self.sendMessage(msg[0], msg[1])
+                            self.sendMessage(msg[0], msg[1], msg[2])
 
             logger.debug("Stopping %s as you wish." % self.name)
 
 
-        def sendMessage(self, port, msg):
+        def sendMessage(self, port, msg, originalTimeout):
             #Logic to drop messages based on failure ratio:
             #logger.debug("%s sending message", self.name)
             if self._config.failureRate > random.random():
@@ -521,7 +522,12 @@ class GeneralProcess(threading.Thread):
                 self.queue.task_done()
                 #logger.debug( "Send message to port %d" % port)
             except socket.error as e:
-                logger.error("Exception while sending (%d -> %d) ::%s" % (self.port, port,e))
+                if e.errno == 10048:
+                    #retry adding the item
+                    self.waitList.append((port, msg, originalTimeout))
+                else:
+                    logger.error("Exception while sending (%d -> %d) ::%s" % (self.port, port,e))
                 s.close()
                 return
+
             s.close()

@@ -324,30 +324,33 @@ def main():
     signal.signal(signal.SIGINT, service_shutdown)
     #Create test object and run tests
     tester = TestSolution()
-    generalCountTested = range(3, 11)
+    generalCountTested = range(8, 11)
     retries = 100
-    #Basic testing loop for traitorous and faithful generals
-    for gen_count in generalCountTested:
-        #3m +1 generals cope with m traitors so
-        # for k generals we can have (k - 1) / 3 traitors rounded down, we test for more than minimum no of traitors!!!
-        max_traitors = int((gen_count - 1) / 3.0) + 1
-        for traitors in range(0, max_traitors + 1):
-            for retry in range(retries):
-                tester.byzantineTest(gen_count, traitors)
-    tester.saveFailsCSV("byzantine_standard%d.csv" % retries)
-    tester.resetFails()
-    return
+    if False:
+        #Basic testing loop for traitorous and faithful generals
+        for gen_count in generalCountTested:
+            #3m +1 generals cope with m traitors so
+            # for k generals we can have (k - 1) / 3 traitors rounded down, we test for more than minimum no of traitors!!!
+            max_traitors = int((gen_count - 1) / 3.0) + 1
+            for traitors in range(0, max_traitors + 1):
+                for retry in range(retries):
+                    tester.byzantineTest(gen_count, traitors)
+        tester.saveFailsCSV("byzantine_standard%d.csv" % retries)
+        tester.resetFails()
+        return
     # Testing loop for traitorous commanding generals
-    retries = 0
-    generalCountTested = range(4, 8)
+    retries = 100
+    generalCountTested = range(2, 11)
     for gen_count in generalCountTested:
         #3m +1 generals cope with m traitors so
         # for k generals we can have (k - 1) / 3 traitors rounded down
-        additional_traitors = int((gen_count - 1) / 3.0) - 1 # this will not work for general count below 4 (al least 1 traitor must be)
+        additional_traitors = int((gen_count - 1) / 3.0) # this will not work for general count below 4 (al least 1 traitor must be)
         for traitors in range(0, additional_traitors + 1):
             for retry in range(retries):
                 tester.byzantineTestCommanderTraitor(gen_count, traitors)
-
+    tester.saveFailsCSV("byzantine_generalTraitor%d.csv" % retries)
+    tester.resetFails()
+    return
     # Testing loop for traitorous and faithful generals with latency
     retries = 0
     generalCountTested = range(4, 8)

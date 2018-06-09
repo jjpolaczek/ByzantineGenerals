@@ -73,7 +73,7 @@ class TestSolution():
             except KeyError:
                 self.resultFailLogger[(no_generals, no_traitors)] = 1
     def saveFailsCSV(self, filename):
-        with open(filename, 'w') as f:
+        with open(filename, 'wa') as f:
             f.write("sep=;" + os.linesep)
             f.write("Generals;Traitors;Fails" + os.linesep)
             for key in self.resultFailLogger:
@@ -317,6 +317,12 @@ class TestSolution():
 
 
 def main():
+    test_toggle={"standard": True,
+           "commander_traitor": True,
+           "basic_latency": True,
+           "traitor_fails": True,
+           "global_fails": True
+           }
     # Register the signal handlers
     logging.basicConfig(level=logging.ERROR)
     logging.getLogger('__main__').setLevel(logging.INFO)
@@ -326,7 +332,7 @@ def main():
     tester = TestSolution()
     generalCountTested = range(8, 11)
     retries = 100
-    if False:
+    if test_toggle["standard"]:
         #Basic testing loop for traitorous and faithful generals
         for gen_count in generalCountTested:
             #3m +1 generals cope with m traitors so
@@ -340,47 +346,66 @@ def main():
         return
     # Testing loop for traitorous commanding generals
     retries = 100
-    generalCountTested = range(2, 11)
-    for gen_count in generalCountTested:
-        #3m +1 generals cope with m traitors so
-        # for k generals we can have (k - 1) / 3 traitors rounded down
-        additional_traitors = int((gen_count - 1) / 3.0) # this will not work for general count below 4 (al least 1 traitor must be)
-        for traitors in range(0, additional_traitors + 1):
-            for retry in range(retries):
-                tester.byzantineTestCommanderTraitor(gen_count, traitors)
-    tester.saveFailsCSV("byzantine_generalTraitor%d.csv" % retries)
-    tester.resetFails()
-    return
+    generalCountTested = range(9, 11)
+    if test_toggle["commander_traitor"]:
+        for gen_count in generalCountTested:
+            #3m +1 generals cope with m traitors so
+            # for k generals we can have (k - 1) / 3 traitors rounded down
+            additional_traitors = int((gen_count - 1) / 3.0) # this will not work for general count below 4 (al least 1 traitor must be)
+            for traitors in range(0, additional_traitors + 1):
+                for retry in range(retries):
+                    tester.byzantineTestCommanderTraitor(gen_count, traitors)
+        tester.saveFailsCSV("byzantine_generalTraitor%d.csv" % retries)
+        tester.resetFails()
     # Testing loop for traitorous and faithful generals with latency
     retries = 0
-    generalCountTested = range(4, 8)
+    generalCountTested = range(9, 11)
     latencyMin_ms = 100
     latencyMax_ms = 300
-    for gen_count in generalCountTested:
-        #3m +1 generals cope with m traitors so
-        # for k generals we can have (k - 1) / 3 traitors rounded down
-        max_traitors = int((gen_count - 1) / 3.0)
-        for traitors in range(0, max_traitors + 1):
-            for retry in range(retries):
-                tester.byzantineTestWithLatency(gen_count, traitors, latencyMin_ms, latencyMax_ms)
-
+    if test_toggle["basic_latency"]:
+        for gen_count in generalCountTested:
+            #3m +1 generals cope with m traitors so
+            # for k generals we can have (k - 1) / 3 traitors rounded down
+            max_traitors = int((gen_count - 1) / 3.0)
+            for traitors in range(0, max_traitors + 1):
+                for retry in range(retries):
+                    tester.byzantineTestWithLatency(gen_count, traitors, latencyMin_ms, latencyMax_ms)
+        tester.saveFailsCSV("byzantine_basicLatency%d.csv" % retries)
+        tester.resetFails()
 
     # Testing loop for traitorous and faithful generals  with latency and failures
-    retries = 2
-    generalCountTested = range(6, 8)
+    retries = 100
+    generalCountTested = range(9, 11)
     latencyMin_ms = 100
     latencyMax_ms = 300
-    traitorFailRates = [0.2, 0.8, 1.0]
-    globalFailRates = [0.0, 0.00]
+    traitorFailRates = [0.2, 0.8]
+    globalFailRates = [0.05, 0.1]
 
-    for gen_count in generalCountTested:
-        #3m +1 generals cope with m traitors so
-        # for k generals we can have (k - 1) / 3 traitors rounded down
-        max_traitors = int((gen_count - 1) / 3.0)
-        for traitors in range(0, max_traitors + 1):
-            for t_failrate in traitorFailRates:
-                for g_failrate in globalFailRates:
+    if test_toggle["traitor_fails"]:
+        for t_failrate in traitorFailRates:
+            for gen_count in generalCountTested:
+                #3m +1 generals cope with m traitors so
+                # for k generals we can have (k - 1) / 3 traitors rounded down
+                max_traitors = int((gen_count - 1) / 3.0) + 1
+                for traitors in range(0, max_traitors + 1):
+                            for retry in range(retries):
+                                tester.byzantineTestWithLinkFailsandLatency(gen_count, traitors, t_failrate, 0.0,
+                                                                            latencyMin_ms, latencyMax_ms)
+            tester.saveFailsCSV("byzantine_tfails%.2f%d.csv" % (t_failrate, retries))
+            tester.resetFails()
+
+    if test_toggle["global_fails"]:
+        for g_failrate in globalFailRates:
+            for gen_count in generalCountTested:
+                # 3m +1 generals cope with m traitors so
+                # for k generals we can have (k - 1) / 3 traitors rounded down
+                max_traitors = int((gen_count - 1) / 3.0) + 1
+                for traitors in range(0, max_traitors + 1):
                     for retry in range(retries):
-                        tester.byzantineTestWithLinkFailsandLatency(gen_count, traitors, t_failrate, g_failrate, latencyMin_ms, latencyMax_ms)
+                        tester.byzantineTestWithLinkFailsandLatency(gen_count, traitors, 0.0, g_failrate,
+                                                                    latencyMin_ms, latencyMax_ms)
+            tester.saveFailsCSV("byzantine_gfails%.2f%d.csv" % (g_failrate, retries))
+            tester.resetFails()
+
 if __name__ == '__main__':
     main()

@@ -42,7 +42,7 @@ class GeneralProcess(threading.Thread):
         #Initialize self state
         self._state=None
         self._maxMessages = self._getMaxMessages(len(self.others) + 1)
-        self._timeoutS = float(self._maxMessages) * 0.05 + 1
+        self._timeoutS = float(self._maxMessages * len(self.others)) * 0.02 + 3
         logger.info("Timeout set to %f seconds", self._timeoutS)
         self._timeoutTime = 0
         self._decision=None

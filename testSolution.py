@@ -330,7 +330,7 @@ def main():
     signal.signal(signal.SIGINT, service_shutdown)
     #Create test object and run tests
     tester = TestSolution()
-    generalCountTested = range(8, 11)
+    generalCountTested = range(3, 11)
     retries = 100
     if test_toggle["standard"]:
         #Basic testing loop for traitorous and faithful generals
@@ -346,7 +346,7 @@ def main():
         return
     # Testing loop for traitorous commanding generals
     retries = 100
-    generalCountTested = range(9, 11)
+    generalCountTested = range(4, 11)
     if test_toggle["commander_traitor"]:
         for gen_count in generalCountTested:
             #3m +1 generals cope with m traitors so
@@ -358,8 +358,8 @@ def main():
         tester.saveFailsCSV("byzantine_generalTraitor%d.csv" % retries)
         tester.resetFails()
     # Testing loop for traitorous and faithful generals with latency
-    retries = 0
-    generalCountTested = range(9, 11)
+    retries = 100
+    generalCountTested = range(3, 9)
     latencyMin_ms = 100
     latencyMax_ms = 300
     if test_toggle["basic_latency"]:
@@ -375,7 +375,7 @@ def main():
 
     # Testing loop for traitorous and faithful generals  with latency and failures
     retries = 100
-    generalCountTested = range(9, 11)
+    generalCountTested = range(3, 9)
     latencyMin_ms = 100
     latencyMax_ms = 300
     traitorFailRates = [0.2, 0.8]
